@@ -1,0 +1,35 @@
+# ===== 機密情報（絶対にGit管理しない）=====
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+secrets.json
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ===== エディタ =====
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ===== ログ・一時ファイル =====
+*.log
+*.tmp
+
+# ===== 依存（将来ツールを足した場合）=====
+node_modules/
+
+# ===== ローカル作業用の音声/書き出し（リポジトリに含めない）=====
+*.wav
+*.mp3
+*.ogg
+*.flac
+*.m4a
+test-audio/
+exports/
