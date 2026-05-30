@@ -864,6 +864,7 @@ class StudioFlowDAW2 {
     $('easy-compare').onclick = () => this.toggleOriginalCompare();
     $('easy-reset').onclick = () => this.resetToOriginal();
     $('easy-creator').onclick = () => this._openModal('creator');
+    $('easy-finalize').onclick = () => this.quickFinalize();
     $('easy-export').onclick = () => this._openModal('export');
 
     $('btn-to-pro').onclick = () => this.switchMode('pro');
@@ -1027,6 +1028,22 @@ class StudioFlowDAW2 {
     } catch (e) { this.toast('素材作成失敗: ' + e.message); }
   }
 
+  // ---------- auto-master (beginner one-click "pro finish") ----------
+  // 無音カット → ラウドネス正規化(目標LUFS) → True Peak リミット(-1dBTP)
+  // 戻り値に before/after の実測値を含めて改善を可視化できるようにする。
+  autoMaster(buf, targetLUFS = -14, { trim = true } = {}) {
+    const P = SF2ProTools;
+    const beforeLUFS = P.measureLUFS(buf);
+    const beforeTP = P.measureTruePeak(buf);
+    let out = buf;
+    if (trim) out = P.trimSilence(out, 2);          // 先頭・末尾の無音を除去
+    out = P.normalizeLUFS(out, targetLUFS);          // 配信先の音量に合わせる
+    out = P.applyTruePeakLimiter(out, -1);           // クリップ防止（-1dBTP）
+    const afterLUFS = P.measureLUFS(out);
+    const afterTP = P.measureTruePeak(out);
+    return { buf: out, beforeLUFS, afterLUFS, beforeTP, afterTP };
+  }
+
   // ---------- export ----------
   async doExport() {
     if (this.tracks.length === 0) { this.toast('書き出す音源がありません'); return; }
@@ -1034,14 +1051,23 @@ class StudioFlowDAW2 {
     const sr = parseInt($('export-samplerate').value, 10);
     const bit = parseInt($('export-bitdepth').value, 10);
     const normalize = $('export-normalize').checked;
+    const autoMaster = $('export-automaster').checked;
+    const targetLUFS = parseFloat($('export-target').value);
     const meta = { title: $('export-title').value, artist: $('export-artist').value, album: $('export-album').value };
 
     const btn = $('export-confirm');
     btn.disabled = true; btn.textContent = '書き出し中...';
     try {
       let buf = await this.engine.renderOffline(this.tracks, this.projectDuration, sr,
-        pct => { btn.textContent = `書き出し中 ${Math.round(pct * 100)}%`; });
-      if (normalize) buf = SF2ProTools.peakNormalize(buf, -0.3);
+        pct => { btn.textContent = `仕上げ処理中 ${Math.round(pct * 100)}%`; });
+      if (autoMaster) {
+        btn.textContent = '✨ プロ仕上げ中...';
+        const r = this.autoMaster(buf, targetLUFS);
+        buf = r.buf;
+        this.toast(`仕上げ完了: ${r.beforeLUFS.toFixed(1)} → ${r.afterLUFS.toFixed(1)} LUFS`);
+      } else if (normalize) {
+        buf = SF2ProTools.peakNormalize(buf, -0.3);
+      }
 
       const base = (meta.title || 'studioflow2').replace(/[^\w\-]+/g, '_');
       if (fmt === 'wav' || fmt === 'flac') {
@@ -1062,6 +1088,28 @@ class StudioFlowDAW2 {
       this.toast('書き出し失敗: ' + e.message);
     } finally {
       btn.disabled = false; btn.innerHTML = '<i class="fas fa-download"></i> 書き出す';
+    }
+  }
+
+  // ワンクリック仕上げ（かんたんモード）: ミックス → おまかせマスタリング → 即ダウンロード
+  async quickFinalize() {
+    if (this.tracks.length === 0) { this.toast('先に楽曲を読み込んでください'); return; }
+    const btn = $('easy-finalize');
+    const orig = btn.innerHTML;
+    btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 仕上げ中...';
+    try {
+      const buf = await this.engine.renderOffline(this.tracks, this.projectDuration, 44100);
+      const r = this.autoMaster(buf, -14);              // 配信向け -14 LUFS を既定に
+      const base = (($('export-title') && $('export-title').value) || 'studioflow2').replace(/[^\w\-]+/g, '_');
+      const bytes = SF2ExportManager.bufferToWAVBytes(r.buf, 16, 44100);
+      SF2ExportManager.download(new Blob([bytes], { type: 'audio/wav' }), `${base}_mastered.wav`);
+      this._setStep('export');
+      const up = (r.afterLUFS - r.beforeLUFS);
+      this.toast(`✨ 仕上げ完了！ 音量 ${r.beforeLUFS.toFixed(1)} → ${r.afterLUFS.toFixed(1)} LUFS（${up >= 0 ? '+' : ''}${up.toFixed(1)}）・ピーク ${r.afterTP.toFixed(1)}dBTP で書き出しました`);
+    } catch (e) {
+      this.toast('仕上げ失敗: ' + e.message);
+    } finally {
+      btn.disabled = false; btn.innerHTML = orig;
     }
   }
 

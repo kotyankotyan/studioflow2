@@ -79,6 +79,7 @@
                     <button id="easy-compare" class="action-btn"><i class="fas fa-code-compare"></i> 原曲比較</button>
                     <button id="easy-reset" class="action-btn"><i class="fas fa-rotate-left"></i> 初期化</button>
                     <button id="easy-creator" class="action-btn"><i class="fas fa-screwdriver-wrench"></i> 素材を作る</button>
+                    <button id="easy-finalize" class="action-btn finalize"><i class="fas fa-wand-magic-sparkles"></i> おまかせ仕上げ</button>
                     <button id="easy-export" class="action-btn primary"><i class="fas fa-file-export"></i> 書き出し</button>
                 </div>
             </div>
@@ -208,7 +209,16 @@
                 <div class="form-row"><label>ビット深度</label>
                     <select id="export-bitdepth"><option value="16">16 bit</option><option value="24">24 bit</option><option value="32">32 bit</option></select>
                 </div>
-                <div class="form-row"><label>ピーク正規化 (-0.3dB)</label><input type="checkbox" id="export-normalize" checked></div>
+                <div class="form-row automaster-row"><label>✨ おまかせプロ仕上げ</label><input type="checkbox" id="export-automaster" checked></div>
+                <div class="form-row"><label>配信先（音量目標）</label>
+                    <select id="export-target">
+                        <option value="-14">配信向け / YouTube・Spotify (-14 LUFS)</option>
+                        <option value="-16">Apple Music・控えめ (-16 LUFS)</option>
+                        <option value="-9">大音量 / EDM・クラブ (-9 LUFS)</option>
+                        <option value="-23">放送基準 (-23 LUFS)</option>
+                    </select>
+                </div>
+                <div class="form-row"><label>ピーク正規化 (-0.3dB)</label><input type="checkbox" id="export-normalize"></div>
                 <div class="form-row"><label>タイトル</label><input type="text" id="export-title"></div>
                 <div class="form-row"><label>アーティスト</label><input type="text" id="export-artist"></div>
                 <div class="form-row"><label>アルバム</label><input type="text" id="export-album"></div>
