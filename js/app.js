@@ -191,11 +191,19 @@ class StudioFlowDAW2 {
     else this.play();
   }
 
+  // Keep both transport play buttons (pro top-bar + easy top-bar) in sync.
+  _syncPlayButtons(playing) {
+    const icon = playing ? '<i class="fas fa-pause"></i>' : '<i class="fas fa-play"></i>';
+    const p = $('btn-play'), e = $('btn-easy-play');
+    if (p) p.innerHTML = icon;
+    if (e) e.innerHTML = icon;
+  }
+
   play() {
-    if (this.tracks.length === 0) return;
+    if (this.tracks.length === 0) { this.toast('先に楽曲を読み込んでください'); return; }
     this.engine.tracks = this.tracks;
     this.engine.play(this.tracks, this.engine.currentTime);
-    $('btn-play').innerHTML = '<i class="fas fa-pause"></i>';
+    this._syncPlayButtons(true);
     $('pro-mode').classList.add('playing');
   }
 
@@ -203,14 +211,14 @@ class StudioFlowDAW2 {
     const t = this.engine.currentTime;
     this.engine.stop();
     this.engine._playOffset = t;
-    $('btn-play').innerHTML = '<i class="fas fa-play"></i>';
+    this._syncPlayButtons(false);
     $('pro-mode').classList.remove('playing');
   }
 
   stop() {
     this.engine.stop();
     this.engine._playOffset = 0;
-    $('btn-play').innerHTML = '<i class="fas fa-play"></i>';
+    this._syncPlayButtons(false);
     $('pro-mode').classList.remove('playing');
     this._onTimeUpdate(0);
   }
@@ -247,15 +255,16 @@ class StudioFlowDAW2 {
   }
 
   _onTimeUpdate(t) {
-    $('current-time').textContent = StudioFlowDAW2.fmtTime(t);
+    const ts = StudioFlowDAW2.fmtTime(t);
+    $('current-time').textContent = ts;
     $('total-time').textContent = StudioFlowDAW2.fmtTime(this.projectDuration);
+    const et = $('easy-time');
+    if (et) et.textContent = ts;
     const ph = $('playhead');
     if (ph) {
       ph.style.left = (180 + t * this.pxPerSec) + 'px';
     }
-    if (!this.engine._isPlaying && t === 0) {
-      $('btn-play').innerHTML = '<i class="fas fa-play"></i>';
-    }
+    if (!this.engine._isPlaying && t === 0) this._syncPlayButtons(false);
   }
 
   // ---------- track / clip rendering (pro mode) ----------
@@ -416,7 +425,8 @@ class StudioFlowDAW2 {
     const t = this.getTrack(id);
     t.volume = v;
     if (t.nodes) t.nodes.gainNode.gain.setTargetAtTime(v, 0, 0.01);
-    this._renderMixer();
+    // NOTE: do NOT re-render the mixer here — it would destroy the fader/slider
+    // element while the user is dragging it, breaking the drag interaction.
   }
   setTrackPan(id, p) {
     const t = this.getTrack(id);
@@ -798,6 +808,7 @@ class StudioFlowDAW2 {
     clip.buffer = newBuf;
     clip.duration = newBuf.duration;
     clip.offset = 0;
+    clip._saved = false;     // mark dirty so _saveProject persists the NEW audio
   }
 
   _proToolAction(act) {
@@ -866,6 +877,8 @@ class StudioFlowDAW2 {
     $('easy-creator').onclick = () => this._openModal('creator');
     $('easy-finalize').onclick = () => this.quickFinalize();
     $('easy-export').onclick = () => this._openModal('export');
+    $('btn-easy-play').onclick = () => this.togglePlay();
+    $('btn-easy-stop').onclick = () => this.stop();
 
     $('btn-to-pro').onclick = () => this.switchMode('pro');
     $('btn-to-easy').onclick = () => this.switchMode('easy');
@@ -923,9 +936,15 @@ class StudioFlowDAW2 {
 
   applyEasyPreset(name) {
     for (const t of this.tracks) {
-      if (name === 'karaoke' && t.part === 'vocal') { t.muted = true; if (t.nodes) t.nodes.gainNode.gain.value = 0; continue; }
-      if (name === 'vocal' && t.part !== 'vocal') { this.setTrackVolume(t.id, t.volume * 0.8); }
-      if (name === 'bass') { this.setTrackEQ(t.id, 'eqLow', t.part === 'bass' ? 6 : 2); }
+      // ベースラインへリセット → プリセットは「絶対値」で適用（冪等・切替可能にする）
+      t.muted = false;
+      this.setTrackVolume(t.id, 1);
+      if (name === 'karaoke' && t.part === 'vocal') {
+        t.muted = true; if (t.nodes) t.nodes.gainNode.gain.setTargetAtTime(0, 0, 0.01);
+      } else if (name === 'vocal' && t.part !== 'vocal') {
+        this.setTrackVolume(t.id, 0.8);
+      }
+      if (name === 'bass') this.setTrackEQ(t.id, 'eqLow', t.part === 'bass' ? 6 : 2);
       SF2Effects.applyEQPreset(t, name);
     }
     this.mastering.applyPreset(['pop', 'rock', 'hiphop', 'edm'].includes(name) ? name : 'pop');
@@ -958,7 +977,9 @@ class StudioFlowDAW2 {
         if (t.nodes) { t.nodes.gainNode.gain.value = 1; t.nodes.panNode.pan.value = 0; }
       }
     }
+    this._comparing = false;
     this._refreshAll();
+    this._saveProject();
     this.toast('原曲に戻しました');
   }
 
@@ -1047,6 +1068,7 @@ class StudioFlowDAW2 {
   // ---------- export ----------
   async doExport() {
     if (this.tracks.length === 0) { this.toast('書き出す音源がありません'); return; }
+    if (this._comparing) this.toggleOriginalCompare();   // 原曲比較中は編集版に戻してから出力
     const fmt = $('export-format').value;
     const sr = parseInt($('export-samplerate').value, 10);
     const bit = parseInt($('export-bitdepth').value, 10);
@@ -1094,6 +1116,7 @@ class StudioFlowDAW2 {
   // ワンクリック仕上げ（かんたんモード）: ミックス → おまかせマスタリング → 即ダウンロード
   async quickFinalize() {
     if (this.tracks.length === 0) { this.toast('先に楽曲を読み込んでください'); return; }
+    if (this._comparing) this.toggleOriginalCompare();   // 原曲比較中は編集版に戻してから仕上げ
     const btn = $('easy-finalize');
     const orig = btn.innerHTML;
     btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 仕上げ中...';

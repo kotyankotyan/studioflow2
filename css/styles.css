@@ -113,6 +113,11 @@ label { font-size: 12px; color: var(--text-dim); }
 .step.active .step-num { background: var(--accent-secondary); color: #fff; }
 .step-arrow { color: var(--text-dim); font-size: 11px; }
 .mode-switch-btn { background: var(--bg-tertiary); }
+.easy-transport { display: flex; align-items: center; gap: 8px; }
+.easy-transport button { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 50%; }
+.easy-transport #btn-easy-play { background: var(--accent-secondary); color: #fff; }
+.easy-transport #btn-easy-play:hover { background: #0b8fd1; }
+.easy-time { font-variant-numeric: tabular-nums; font-size: 14px; color: var(--text-dim); min-width: 78px; }
 
 .easy-body { flex: 1; overflow-y: auto; padding: 28px; }
 .easy-dropzone {
