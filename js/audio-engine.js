@@ -161,7 +161,10 @@ class AudioEngine {
 
         const src = this.ctx.createBufferSource();
         src.buffer = clip.buffer;
-        const bpmRatio = this._bpm / this._originalBpm;
+        // BPM is informational (tempo display). We do NOT varispeed playback,
+        // because changing playbackRate also shifts pitch — surprising for a
+        // "tempo" control. (True pitch-preserving stretch needs a phase vocoder.)
+        const bpmRatio = 1;
         src.playbackRate.value = bpmRatio;
 
         const clipGain = this.ctx.createGain();
@@ -281,7 +284,7 @@ class AudioEngine {
     const irBuf = (typeof SF2Effects !== 'undefined')
       ? SF2Effects.createImpulseResponse(offCtx, 2, 2) : null;
 
-    const bpmRatio = this._bpm / this._originalBpm;
+    const bpmRatio = 1; // no varispeed on export (see play())
     const isSoloed = tracks.some(t => t.solo);
 
     for (const track of tracks) {

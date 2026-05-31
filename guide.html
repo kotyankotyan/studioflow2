@@ -193,13 +193,6 @@
 
     <footer>StudioFlow 2 — 個人利用専用 / すべての処理はブラウザ内で完結します（外部送信なし）</footer>
 
-    <script>
-        document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
-            const mode = t.dataset.mode;
-            document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x.dataset.mode === mode));
-            document.querySelectorAll('section.mode').forEach(s => s.classList.toggle('active', s.classList.contains(mode)));
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-        }));
-    </script>
+    <script src="js/guide.js"></script>
 </body>
 </html>

@@ -247,7 +247,7 @@ class StudioFlowDAW2 {
     this.bpm = bpm;
     this.engine.setBPM(bpm);
     $('bpm-input').value = bpm;
-    if (this.engine._isPlaying) { this.engine.stop(); this.play(); }
+    // BPM is a tempo display value only — it no longer warps playback speed/pitch.
   }
 
   setZoom(z) {
