@@ -936,6 +936,7 @@ class StudioFlowDAW2 {
     $('easy-export').onclick = () => this._openModal('export');
     $('btn-easy-play').onclick = () => this.togglePlay();
     $('btn-easy-stop').onclick = () => this.stop();
+    $('btn-easy-help').onclick = () => this.openGuide();
 
     $('btn-to-pro').onclick = () => this.switchMode('pro');
     $('btn-to-easy').onclick = () => this.switchMode('easy');
@@ -1380,6 +1381,13 @@ class StudioFlowDAW2 {
 
   _bindGlobal() {
     $('btn-logout').onclick = () => { SF2Auth.clearSession(); location.reload(); };
+    const help = $('btn-pro-help');
+    if (help) help.onclick = () => this.openGuide();
+  }
+
+  // 使い方ガイドを別タブで開く（同一オリジンの静的ページ）
+  openGuide() {
+    window.open('guide.html', 'sf2guide', 'noopener');
   }
 }
 

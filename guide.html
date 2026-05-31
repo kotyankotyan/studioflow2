@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StudioFlow 2 — 使い方ガイド</title>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' https://fonts.googleapis.com https://cdnjs.cloudflare.com 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data:; connect-src 'self';">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" referrerpolicy="no-referrer">
+    <style>
+        :root{
+            --bg-primary:#1a1a2e; --bg-secondary:#16213e; --bg-tertiary:#0f3460; --bg-surface:#1e2a4a;
+            --accent:#e94560; --accent-secondary:#0ea5e9; --accent-green:#22c55e; --accent-yellow:#eab308; --accent-purple:#a855f7;
+            --text:#e8ecf4; --text-dim:#8a93ab; --border:#2a3a5e;
+        }
+        *{box-sizing:border-box;margin:0;padding:0;}
+        body{font-family:'Inter',system-ui,sans-serif;background:var(--bg-primary);color:var(--text);line-height:1.7;padding:0 0 60px;}
+        ::-webkit-scrollbar{width:10px;}::-webkit-scrollbar-track{background:var(--bg-primary);}
+        ::-webkit-scrollbar-thumb{background:var(--bg-tertiary);border-radius:5px;}
+        header{background:linear-gradient(135deg,var(--bg-tertiary),var(--bg-secondary));padding:32px 24px;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10;backdrop-filter:blur(6px);}
+        header .wrap{max-width:900px;margin:0 auto;display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
+        header i{font-size:32px;color:var(--accent-secondary);}
+        header h1{font-size:24px;}
+        header p{color:var(--text-dim);font-size:14px;width:100%;margin-top:4px;}
+        .container{max-width:900px;margin:0 auto;padding:24px;}
+        .tabs{display:flex;gap:8px;margin:24px 0;flex-wrap:wrap;}
+        .tab{padding:12px 22px;border-radius:10px 10px 0 0;background:var(--bg-secondary);color:var(--text-dim);cursor:pointer;border:1px solid var(--border);border-bottom:none;font-size:15px;font-weight:600;display:flex;align-items:center;gap:8px;}
+        .tab.active{background:var(--bg-tertiary);color:#fff;}
+        .tab.easy.active{box-shadow:inset 0 -3px 0 var(--accent-secondary);}
+        .tab.pro.active{box-shadow:inset 0 -3px 0 var(--accent-purple);}
+        section.mode{display:none;}
+        section.mode.active{display:block;}
+        .intro{background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:16px 20px;margin-bottom:24px;color:var(--text-dim);}
+        .intro b{color:var(--text);}
+        .step{display:flex;gap:16px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:18px 20px;margin-bottom:14px;}
+        .step .num{flex-shrink:0;width:38px;height:38px;border-radius:50%;display:grid;place-items:center;font-weight:700;font-size:16px;color:#fff;}
+        .easy .num{background:var(--accent-secondary);}
+        .pro .num{background:var(--accent-purple);}
+        .step .body h3{font-size:16px;margin-bottom:6px;display:flex;align-items:center;gap:8px;}
+        .step .body p{color:var(--text-dim);font-size:14px;}
+        .step .body .hint{margin-top:8px;font-size:13px;color:var(--accent-yellow);}
+        .step .body ul{margin:8px 0 0 18px;color:var(--text-dim);font-size:14px;}
+        .chip{display:inline-block;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:6px;padding:1px 8px;font-size:13px;color:var(--text);margin:0 2px;}
+        .keys{background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:18px 20px;margin-top:24px;}
+        .keys h3{margin-bottom:12px;font-size:16px;}
+        .keys table{width:100%;border-collapse:collapse;}
+        .keys td{padding:6px 8px;border-bottom:1px solid var(--border);font-size:14px;}
+        .keys td:first-child{color:var(--accent-secondary);font-weight:600;width:160px;}
+        .tip{background:rgba(34,197,94,.08);border:1px solid var(--accent-green);border-radius:12px;padding:16px 20px;margin-top:24px;font-size:14px;}
+        .tip b{color:var(--accent-green);}
+        footer{max-width:900px;margin:30px auto 0;padding:0 24px;color:var(--text-dim);font-size:13px;text-align:center;}
+    </style>
+</head>
+<body>
+    <header>
+        <div class="wrap">
+            <i class="fas fa-wave-square"></i>
+            <h1>StudioFlow 2 — 使い方ガイド</h1>
+            <p>このタブは開いたままにして、アプリ本体と並べて確認しながら作業できます。</p>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="tabs">
+            <div class="tab easy active" data-mode="easy"><i class="fas fa-wand-magic-sparkles"></i> かんたんモード</div>
+            <div class="tab pro" data-mode="pro"><i class="fas fa-sliders"></i> 上級者モード</div>
+        </div>
+
+        <!-- ============ かんたんモード ============ -->
+        <section class="mode easy active">
+            <div class="intro">
+                <b>かんたんモードは「読み込む → 整える → 書き出す」の3ステップ。</b>
+                難しい設定は不要。Suno AI で作った曲をそのまま“いい感じ”に仕上げられます。
+            </div>
+
+            <div class="step easy"><div class="num">1</div><div class="body">
+                <h3><i class="fas fa-cloud-arrow-up"></i> 曲を読み込む</h3>
+                <p>中央の点線エリアに音声ファイルを<b>ドラッグ＆ドロップ</b>、またはクリックして選びます（WAV/MP3など）。複数選んでもOK。</p>
+                <p class="hint">読み込むと自動で BPM と KEY（曲のキー）を検出します。</p>
+            </div></div>
+
+            <div class="step easy"><div class="num">2</div><div class="body">
+                <h3><i class="fas fa-play"></i> 再生して聴く</h3>
+                <p>画面上部の <span class="chip">▶</span> で再生、<span class="chip">■</span> で停止。まず原曲を聴いて、どこを直したいか確認します。</p>
+            </div></div>
+
+            <div class="step easy"><div class="num">3</div><div class="body">
+                <h3><i class="fas fa-sliders"></i> パートごとに整える</h3>
+                <p>パートカード（ボーカル/ドラム/ベース/その他）ごとに調整できます。</p>
+                <ul>
+                    <li><b>音量</b>：スライダー、または <span class="chip">−</span> <span class="chip">＋</span> ボタンで微調整</li>
+                    <li><b>パン</b>：左右の位置</li>
+                    <li><b>EQ</b>：音の明るさ／こもり</li>
+                    <li><b>Rev（リバーブ）</b>：響き・広がり</li>
+                </ul>
+            </div></div>
+
+            <div class="step easy"><div class="num">4</div><div class="body">
+                <h3><i class="fas fa-palette"></i> プリセットで一発調整</h3>
+                <p>迷ったら <b>プリセット</b> を選ぶだけ。ポップ／ロック／ヒップホップ／EDM／チル／ボーカル際立ち／重低音／カラオケ から選択。</p>
+                <p class="hint">プリセットは何度でも切り替えてOK（前の設定はリセットされます）。</p>
+            </div></div>
+
+            <div class="step easy"><div class="num">5</div><div class="body">
+                <h3><i class="fas fa-code-compare"></i> 原曲と聴き比べる</h3>
+                <p><b>原曲比較</b> ボタンで、編集前／編集後を切り替えて確認。やりすぎたら <b>初期化</b> で最初に戻せます。</p>
+            </div></div>
+
+            <div class="step easy"><div class="num">6</div><div class="body">
+                <h3><i class="fas fa-wand-magic-sparkles"></i> 仕上げて書き出す</h3>
+                <p><b>おまかせ仕上げ</b>：ワンクリックで音量・音圧をプロ基準（配信向け）に自動調整し、すぐダウンロード。仕上がりの音量変化も表示します。</p>
+                <p><b>書き出し</b>：フォーマットや配信先（YouTube/Spotify 等）を選んで出力。<span class="chip">✨おまかせプロ仕上げ</span> は既定でオンです。</p>
+            </div></div>
+
+            <div class="tip"><b>困ったら：</b> もっと細かく調整したくなったら、右上の <span class="chip">上級者モード</span> へ切り替えれば、トラック編集やマスタリングが使えます。</div>
+        </section>
+
+        <!-- ============ 上級者モード ============ -->
+        <section class="mode pro">
+            <div class="intro">
+                <b>上級者モードは本格DAW。</b> トラックを切り貼りし、ミキサー・マスタリング・プロ仕上げで細部まで追い込めます。
+                左サイドバー＝読込/ツール、中央＝トラック、右＝プロパティ/エフェクト、下＝各種パネルです。
+            </div>
+
+            <div class="step pro"><div class="num">1</div><div class="body">
+                <h3><i class="fas fa-file-audio"></i> 読み込む（左サイドバー「読込」）</h3>
+                <p><b>単体</b>／<b>複数</b>／<b>追加</b>で音声を読み込み。読み込むとトラックとして並びます。各トラックの右上のゴミ箱で<b>削除</b>できます。</p>
+            </div></div>
+
+            <div class="step pro"><div class="num">2</div><div class="body">
+                <h3><i class="fas fa-scissors"></i> トラック／クリップを編集（ツール）</h3>
+                <ul>
+                    <li><span class="chip">選択</span> クリップを選んで右パネルで開始位置・ゲイン・名前を編集</li>
+                    <li><span class="chip">カット</span> クリップ上をクリックでその位置を分割</li>
+                    <li><span class="chip">移動</span>／<span class="chip">ズーム</span>／<span class="chip">描画</span> も用途に応じて</li>
+                </ul>
+                <p class="hint">選択したクリップは <span class="chip">Delete</span> で削除、<span class="chip">Ctrl+Z</span> で元に戻せます。</p>
+            </div></div>
+
+            <div class="step pro"><div class="num">3</div><div class="body">
+                <h3><i class="fas fa-sliders"></i> ミキサーで音量バランス</h3>
+                <p>下パネルの <b>ミキサー</b> で、各トラックの EQ（Hi/Mid/Lo）・音量フェーダー・<b>M（ミュート）/S（ソロ）</b> を調整。右端の MASTER で全体音量と音圧（LUFS）を確認します。</p>
+            </div></div>
+
+            <div class="step pro"><div class="num">4</div><div class="body">
+                <h3><i class="fas fa-microphone"></i> ボーカル補正 / エフェクト</h3>
+                <p><b>ボーカル補正</b> パネルでオートチューンや J-POP コンプ。右パネルの <b>エフェクト</b> で選択トラックの EQ・パン・リバーブも調整できます。</p>
+            </div></div>
+
+            <div class="step pro"><div class="num">5</div><div class="body">
+                <h3><i class="fas fa-gauge-high"></i> マスタリングで全体の質感</h3>
+                <p><b>マスタリング</b> パネルでプリセット（ポップ/EDM 等）や 5バンドEQ・コンプ・リミッター・ステレオ幅を調整。<b>ここでの設定は再生にも書き出しにも反映</b>されます。</p>
+            </div></div>
+
+            <div class="step pro"><div class="num">6</div><div class="body">
+                <h3><i class="fas fa-wand-magic-sparkles"></i> プロ仕上げ（クリーンアップ）</h3>
+                <ul>
+                    <li><b>無音カット</b>／<b>フェードイン・アウト</b></li>
+                    <li><b>ラウドネス正規化（LUFS）</b>・<b>True Peak リミッター</b>で配信向けの音圧に</li>
+                    <li><b>サビ前スウィープ</b>／<b>ビルドアップ</b>／<b>波形自動分割</b></li>
+                    <li><b>LUFS / True Peak 計測</b>で現状をチェック</li>
+                </ul>
+            </div></div>
+
+            <div class="step pro"><div class="num">7</div><div class="body">
+                <h3><i class="fas fa-bezier-curve"></i> オートメーション / リミックス（応用）</h3>
+                <p><b>オートメーション</b>：音量やパンを時間で変化させる曲線を描画。<b>リミックス</b>：複数曲をレールに並べてクロスフェードで1曲に結合。</p>
+            </div></div>
+
+            <div class="step pro"><div class="num">8</div><div class="body">
+                <h3><i class="fas fa-file-export"></i> 書き出す</h3>
+                <p>右上の <b>書き出し</b> から、フォーマット（WAV/MP3/OGG/FLAC）・サンプルレート・ビット深度・メタデータを設定して出力。<span class="chip">✨おまかせプロ仕上げ</span> をオンにすると配信向けの音量に自動調整されます。</p>
+            </div></div>
+
+            <div class="keys">
+                <h3><i class="fas fa-keyboard"></i> キーボードショートカット</h3>
+                <table>
+                    <tr><td>Space</td><td>再生 / 一時停止</td></tr>
+                    <tr><td>Home / End</td><td>先頭 / 末尾へ移動</td></tr>
+                    <tr><td>← / →</td><td>10秒 戻る / 進む</td></tr>
+                    <tr><td>+ / −</td><td>ズームイン / アウト</td></tr>
+                    <tr><td>L</td><td>ループ ON/OFF</td></tr>
+                    <tr><td>Esc</td><td>選択解除</td></tr>
+                    <tr><td>Ctrl+Z / Ctrl+Y</td><td>元に戻す / やり直し</td></tr>
+                    <tr><td>Delete</td><td>選択クリップを削除</td></tr>
+                    <tr><td>Shift + ?</td><td>ショートカット一覧</td></tr>
+                </table>
+            </div>
+
+            <div class="tip"><b>ヒント：</b> 編集はすべて自動保存され、次回開いたときに復元されます。やり直したいときは左サイドバーの <span class="chip">初期化</span> で原曲に戻せます。</div>
+        </section>
+    </div>
+
+    <footer>StudioFlow 2 — 個人利用専用 / すべての処理はブラウザ内で完結します（外部送信なし）</footer>
+
+    <script>
+        document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
+            const mode = t.dataset.mode;
+            document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x.dataset.mode === mode));
+            document.querySelectorAll('section.mode').forEach(s => s.classList.toggle('active', s.classList.contains(mode)));
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }));
+    </script>
+</body>
+</html>
