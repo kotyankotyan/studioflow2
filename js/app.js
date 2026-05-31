@@ -1085,12 +1085,30 @@ class StudioFlowDAW2 {
       const orig = this.originalBuffers.get(t.id);
       if (orig) {
         t.clips = [{ id: this._nextId('clip'), name: t.name, buffer: orig, startTime: 0, duration: orig.duration, offset: 0, _gain: 1, _saved: false }];
-        t.volume = 1; t.pan = 0; t.muted = false; t.solo = false;
-        if (t.nodes) { t.nodes.gainNode.gain.value = 1; t.nodes.panNode.pan.value = 0; }
+      }
+      // reset all per-track state and audio-node params (volume/pan/EQ/reverb/sweep)
+      t.volume = 1; t.pan = 0; t.muted = false; t.solo = false; t.reverb = 0;
+      t._editedBuf = null;
+      const n = t.nodes;
+      if (n) {
+        n.gainNode.gain.value = 1;
+        n.panNode.pan.value = 0;
+        n.eqLow.gain.value = 0; n.eqMid.gain.value = 0; n.eqHigh.gain.value = 0;
+        n.reverbWet.gain.value = 0; n.reverbDry.gain.value = 1;
+        if (n.sweepFilter) n.sweepFilter.frequency.value = 20000;
       }
     }
+    // reset mastering to flat defaults (affects live + export)
+    this.mastering.setEQ({ low: 0, lowMid: 0, mid: 0, highMid: 0, high: 0 });
+    this.mastering.setCompressor({ threshold: -24, ratio: 3, attack: 0.003, release: 0.25 });
+    this.mastering.setLimiter({ ceiling: -0.3, gain: 0 });
+    this.mastering.setStereoWidth(1);
+    this.applyMastering();
+    this._syncMasteringPanel();
+
     this._comparing = false;
     this._refreshAll();
+    this._refreshPlaybackIfActive();   // 再生中なら即反映
     this._saveProject();
     this.toast('原曲に戻しました');
   }
