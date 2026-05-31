@@ -177,10 +177,12 @@ label { font-size: 12px; color: var(--text-dim); }
 .bpm-control, .key-display { display: flex; align-items: center; gap: 6px; }
 .bpm-control input { width: 64px; }
 .key-display span { font-weight: 600; color: var(--accent-yellow); }
-.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; flex-shrink: 0; }
 .topbar-right button { width: 36px; height: 36px; flex-shrink: 0; display: grid; place-items: center; }
+/* labeled buttons (e.g. mode switch) keep their natural width */
+.topbar-right button.has-label { width: auto; padding: 0 12px; gap: 6px; }
+#top-bar { overflow-x: auto; }
 #top-bar > * { flex-shrink: 0; }
-.topbar-right { flex-wrap: wrap; }
 .zoom-control { display: flex; gap: 4px; }
 
 /* ================= PRO MODE: BODY ================= */
@@ -266,7 +268,8 @@ label { font-size: 12px; color: var(--text-dim); }
 .panel-section h4 { font-size: 13px; margin-bottom: 10px; color: var(--accent-secondary); display: flex; align-items: center; gap: 7px; }
 
 /* mixer */
-#pane-mixer { display: flex; gap: 12px; align-items: stretch; }
+/* only when active — must not override .bottom-pane (display:none) when hidden */
+#pane-mixer.active { display: flex; gap: 12px; align-items: stretch; }
 .mixer-strips { display: flex; gap: 10px; }
 .channel-strip {
   width: 92px; background: var(--bg-surface); border: 1px solid var(--border);
