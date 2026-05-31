@@ -540,7 +540,7 @@ class StudioFlowDAW2 {
     this.toast('音源分離中... 0%');
     try {
       const { vocals, instrumental } = await SF2StemSeparator.separateVocalInstrumental(
-        t.clips[0].buffer, 1, pct => this.toast(`音源分離中... ${Math.round(pct * 100)}%`));
+        t.clips[0].buffer, this.sepStrength ?? 0.6, pct => this.toast(`音源分離中... ${Math.round(pct * 100)}%`));
       this._pushUndo();
       this.addTrack({ name: `${t.name} - ボーカル`, part: 'vocal', buffer: vocals });
       this.addTrack({ name: `${t.name} - 伴奏`, part: 'other', buffer: instrumental });
@@ -713,6 +713,15 @@ class StudioFlowDAW2 {
     if (!pane) return;
     pane.innerHTML = `
       <div class="panel-section">
+        <h4>ボーカル / 伴奏に分離</h4>
+        <div class="prop-row"><label title="強いほど伴奏の混入は減るがボーカルは細くなる">分離の強さ</label>
+          <input type="range" id="vp-sep-strength" min="0" max="1" step="0.05" value="${this.sepStrength ?? 0.6}">
+          <span id="vp-sep-val">${Math.round((this.sepStrength ?? 0.6)*100)}%</span>
+        </div>
+        <button id="vp-separate" class="action-btn primary"><i class="fas fa-layer-group"></i> 分離する</button>
+        <p class="empty-hint">ステレオ幅のある曲ほど綺麗に分かれます（ほぼモノラルの曲は分離不可）。</p>
+      </div>
+      <div class="panel-section">
         <h4>ケロケロ / オートチューン</h4>
         <div class="prop-row"><label>強度</label><input type="range" id="vp-autotune" min="0.2" max="1" step="0.1" value="0.5"></div>
         <button id="vp-apply-autotune" class="action-btn">適用</button>
@@ -722,6 +731,8 @@ class StudioFlowDAW2 {
         <select id="vp-comp"><option value="light">軽め</option><option value="normal" selected>普通</option><option value="heavy">強め</option></select>
         <button id="vp-apply-comp" class="action-btn">適用</button>
       </div>`;
+    $('vp-sep-strength').oninput = e => { this.sepStrength = parseFloat(e.target.value); $('vp-sep-val').textContent = Math.round(this.sepStrength * 100) + '%'; };
+    $('vp-separate').onclick = () => this._aiSeparate();
     $('vp-apply-autotune').onclick = () => {
       const t = this.getTrack(this.selectedTrackId);
       if (!t || !t.nodes) { this.toast('ボーカルトラックを選択'); return; }

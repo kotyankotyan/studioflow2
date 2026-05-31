@@ -112,7 +112,10 @@ function stereoCorrelation(buffer) {
 
 // Separate a stereo buffer into { vocals, instrumental } AudioBuffers.
 // strength 0..1 controls how aggressively centered content is treated as vocal.
-async function separateVocalInstrumental(buffer, strength = 1, onProgress) {
+// strength 0..1 = selectivity. Higher = cleaner vocal (less instrument leak) but
+// a thinner vocal; lower = fuller vocal but more instrument bleed.
+async function separateVocalInstrumental(buffer, strength = 0.6, onProgress) {
+  const exp = 1.5 + 3 * Math.max(0, Math.min(1, strength)); // 1.5 .. 4.5
   const sr = buffer.sampleRate, len = buffer.length;
   const stereo = buffer.numberOfChannels >= 2;
   const L = buffer.getChannelData(0);
@@ -160,8 +163,7 @@ async function separateVocalInstrumental(buffer, strength = 1, onProgress) {
       const coh = cross / (magL * magR + 1e-9);              // -1..1 (1 = in phase)
       const bal = 2 * magL * magR / (magL * magL + magR * magR + 1e-9); // 1 = equal level
       let m = Math.max(0, coh) * bal;                        // 0..1 center-ness
-      m = Math.pow(m, 2.5) * fWeight[k];                     // sharpen + vocal-band only
-      m = Math.min(1, m * (0.5 + strength));                 // strength scaling
+      m = Math.min(1, Math.pow(m, exp) * fWeight[k]);        // selectivity + vocal band
       const midr = (lr + rr) * 0.5, midi = (li + ri) * 0.5;
       vRe[k] = midr * m; vIm[k] = midi * m;                  // vocals = centered mid
       lRe[k] = lr - midr * m; lIm[k] = li - midi * m;        // instrumental = rest
