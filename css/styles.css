@@ -311,6 +311,7 @@ label { font-size: 12px; color: var(--text-dim); }
 .pt-btn:hover { background: var(--accent-secondary); color: #fff; }
 
 /* automation */
+.auto-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
 #auto-canvas { width: 100%; max-width: 600px; height: 140px; background: var(--waveform-bg); border-radius: 6px; display: block; margin: 10px 0; cursor: crosshair; }
 
 /* remix */

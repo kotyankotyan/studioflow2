@@ -735,33 +735,83 @@ class StudioFlowDAW2 {
     pane.innerHTML = `
       <div class="panel-section">
         <h4>オートメーション</h4>
-        <select id="auto-param">
-          <option value="volume">音量</option><option value="pan">パン</option>
-          <option value="eq">EQ</option><option value="reverb">リバーブ</option><option value="filter">フィルター</option>
-        </select>
+        <div class="auto-toolbar">
+          <select id="auto-param">
+            <option value="volume">音量</option><option value="pan">パン</option>
+            <option value="eq">EQ</option><option value="reverb">リバーブ</option><option value="filter">フィルター</option>
+          </select>
+          <button id="auto-clear" class="action-btn"><i class="fas fa-eraser"></i> 全消去</button>
+        </div>
         <canvas id="auto-canvas" width="600" height="140"></canvas>
-        <p class="empty-hint">キャンバスをクリック/ドラッグして曲線を描画</p>
+        <p class="empty-hint">クリックで点を追加・ドラッグで移動 / 点を右クリックで削除 / 「全消去」で書き直し</p>
       </div>`;
     this._automation = this._automation || new SF2Automation.AutomationLane(this.selectedTrackId, 'volume');
     const canvas = $('auto-canvas');
+    const PPS = 20; // px per second on the automation canvas
+
+    const toData = e => {
+      const rect = canvas.getBoundingClientRect();
+      const sx = canvas.width / rect.width, sy = canvas.height / rect.height;
+      const cx = (e.clientX - rect.left) * sx, cy = (e.clientY - rect.top) * sy;
+      return {
+        time: Math.max(0, cx / PPS),
+        value: Math.max(0, Math.min(1, 1 - cy / canvas.height)),
+        cx, cy,
+      };
+    };
+    const nearestIndex = (cx, cy) => {
+      const pts = this._automation.points;
+      let best = -1, bestD = 12; // px threshold
+      pts.forEach((p, i) => {
+        const x = p.time * PPS, y = canvas.height - p.value * canvas.height;
+        const d = Math.hypot(x - cx, y - cy);
+        if (d < bestD) { bestD = d; best = i; }
+      });
+      return best;
+    };
     const redraw = () => {
       const ctx = canvas.getContext('2d');
-      ctx.fillStyle = '#0d1b2a'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      const W = canvas.width, H = canvas.height;
+      ctx.fillStyle = '#0d1b2a'; ctx.fillRect(0, 0, W, H);
+      ctx.strokeStyle = '#ffffff11'; ctx.lineWidth = 1;
+      [0.25, 0.5, 0.75].forEach(f => { ctx.beginPath(); ctx.moveTo(0, H * f); ctx.lineTo(W, H * f); ctx.stroke(); });
       const pts = this._automation.points || [];
-      ctx.strokeStyle = '#0ea5e9'; ctx.lineWidth = 2; ctx.beginPath();
-      pts.forEach((p, i) => {
-        const x = p.time * 20, y = canvas.height - p.value * canvas.height;
-        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-      });
-      ctx.stroke();
+      if (pts.length) {
+        ctx.strokeStyle = '#0ea5e9'; ctx.lineWidth = 2; ctx.beginPath();
+        pts.forEach((p, i) => { const x = p.time * PPS, y = H - p.value * H; i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y); });
+        ctx.stroke();
+        ctx.fillStyle = '#e94560';
+        pts.forEach(p => { const x = p.time * PPS, y = H - p.value * H; ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI * 2); ctx.fill(); });
+      }
     };
-    canvas.onclick = e => {
-      const rect = canvas.getBoundingClientRect();
-      const time = (e.clientX - rect.left) / 20;
-      const value = 1 - (e.clientY - rect.top) / canvas.height;
-      if (this._automation.addPoint) this._automation.addPoint(time, value);
+
+    let dragIdx = -1;
+    canvas.onmousedown = e => {
+      const d = toData(e);
+      let idx = nearestIndex(d.cx, d.cy);
+      if (idx < 0) { this._automation.addPoint(d.time, d.value); idx = this._automation.points.findIndex(p => Math.abs(p.time - d.time) < 0.011); }
+      dragIdx = idx;
       redraw();
     };
+    canvas.onmousemove = e => {
+      if (dragIdx < 0) return;
+      const d = toData(e);
+      const p = this._automation.points[dragIdx];
+      if (p) { p.time = d.time; p.value = d.value; }
+      redraw();
+    };
+    const endDrag = () => {
+      if (dragIdx >= 0) { this._automation.points.sort((a, b) => a.time - b.time); dragIdx = -1; redraw(); }
+    };
+    canvas.onmouseup = endDrag;
+    canvas.onmouseleave = endDrag;
+    canvas.oncontextmenu = e => {
+      e.preventDefault();
+      const d = toData(e);
+      const idx = nearestIndex(d.cx, d.cy);
+      if (idx >= 0) { this._automation.points.splice(idx, 1); redraw(); this.toast('点を削除しました'); }
+    };
+    $('auto-clear').onclick = () => { this._automation.points = []; redraw(); this.toast('オートメーションを消去しました'); };
     $('auto-param').onchange = e => { this._automation = new SF2Automation.AutomationLane(this.selectedTrackId, e.target.value); redraw(); };
     redraw();
   }
