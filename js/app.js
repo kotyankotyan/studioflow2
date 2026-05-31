@@ -722,6 +722,11 @@ class StudioFlowDAW2 {
         <p class="empty-hint">ステレオ幅のある曲ほど綺麗に分かれます（ほぼモノラルの曲は分離不可）。</p>
       </div>
       <div class="panel-section">
+        <h4>ボーカル強化（明瞭化）</h4>
+        <button id="vp-enhance" class="action-btn"><i class="fas fa-wand-magic"></i> 選択クリップを強化</button>
+        <p class="empty-hint">不要な低域を除去し、抜け（4kHz）と空気感（10kHz）を足して軽く圧縮します。</p>
+      </div>
+      <div class="panel-section">
         <h4>ケロケロ / オートチューン</h4>
         <div class="prop-row"><label>強度</label><input type="range" id="vp-autotune" min="0.2" max="1" step="0.1" value="0.5"></div>
         <button id="vp-apply-autotune" class="action-btn">適用</button>
@@ -733,6 +738,19 @@ class StudioFlowDAW2 {
       </div>`;
     $('vp-sep-strength').oninput = e => { this.sepStrength = parseFloat(e.target.value); $('vp-sep-val').textContent = Math.round(this.sepStrength * 100) + '%'; };
     $('vp-separate').onclick = () => this._aiSeparate();
+    $('vp-enhance').onclick = async () => {
+      const clip = this._selectedClipBuffer();
+      if (!clip) { this.toast('クリップを選択してください'); return; }
+      this.toast('ボーカル強化中...');
+      try {
+        const out = await SF2ProTools.enhanceVocal(clip.buffer);
+        this._pushUndo();
+        this._replaceClipBuffer(clip, out);
+        this._refreshAll(); this._saveProject();
+        this._refreshPlaybackIfActive();
+        this.toast('ボーカルを強化しました');
+      } catch (e) { this.toast('強化失敗: ' + e.message); }
+    };
     $('vp-apply-autotune').onclick = () => {
       const t = this.getTrack(this.selectedTrackId);
       if (!t || !t.nodes) { this.toast('ボーカルトラックを選択'); return; }
@@ -917,6 +935,14 @@ class StudioFlowDAW2 {
           </div>
         </div>
         <div class="panel-section">
+          <h4><i class="fas fa-scissors"></i> 短尺切り抜き（SNS用）</h4>
+          <div class="prop-row"><label>長さ</label>
+            <select id="pt-clip-len"><option value="15">15秒</option><option value="30" selected>30秒</option><option value="60">60秒</option></select>
+            <button class="pt-btn" data-act="extract">再生位置から書き出し</button>
+          </div>
+          <p class="empty-hint">プレイヘッド位置から指定秒数を切り出して書き出します（前後に自動フェード）。</p>
+        </div>
+        <div class="panel-section">
           <h4><i class="fas fa-gauge"></i> 計測</h4>
           <button class="pt-btn" data-act="measure">LUFS / True Peak 計測</button>
           <p id="pt-measure-result" class="empty-hint">--</p>
@@ -939,6 +965,7 @@ class StudioFlowDAW2 {
   }
 
   _proToolAction(act) {
+    if (act === 'extract') { this._extractShort(parseFloat($('pt-clip-len').value)); return; }
     const clip = this._selectedClipBuffer();
     if (!clip) { this.toast('クリップを選択してください'); return; }
     const P = SF2ProTools;
@@ -947,7 +974,7 @@ class StudioFlowDAW2 {
         case 'trim': this._pushUndo(); this._replaceClipBuffer(clip, P.trimSilence(clip.buffer, 3)); break;
         case 'fadein': this._pushUndo(); this._replaceClipBuffer(clip, P.applyFade(clip.buffer, 'in', 2, 'exponential')); break;
         case 'fadeout': this._pushUndo(); this._replaceClipBuffer(clip, P.applyFade(clip.buffer, 'out', 3, 'exponential')); break;
-        case 'suno': SF2Effects.applySunoCleanupEQ({ low: this.mastering.nodes.eqLow, lowMid: this.mastering.nodes.eqLowMid, mid: this.mastering.nodes.eqMid, highMid: this.mastering.nodes.eqHighMid, high: this.mastering.nodes.eqHigh }); this.toast('Suno EQ適用'); return;
+        case 'suno': this.mastering.setEQ({ low: 1, lowMid: -3, mid: -1, highMid: -2, high: 1.5 }); this.applyMastering(); this._syncMasteringPanel(); this.toast('Suno EQ適用（マスターに反映）'); return;
         case 'lufs': this._pushUndo(); this._replaceClipBuffer(clip, P.normalizeLUFS(clip.buffer, parseFloat($('pt-lufs').value))); break;
         case 'truepeak': this._pushUndo(); this._replaceClipBuffer(clip, P.applyTruePeakLimiter(clip.buffer, parseFloat($('pt-tp').value))); break;
         case 'sweep': this._addFxClip('sweep'); this.toast('スウィープ追加'); return;
@@ -1280,6 +1307,30 @@ class StudioFlowDAW2 {
     } finally {
       btn.disabled = false; btn.innerHTML = orig;
     }
+  }
+
+  // 短尺切り抜き: ミックスをレンダリングし、プレイヘッド位置から指定秒を切り出して書き出す
+  async _extractShort(sec) {
+    if (this.tracks.length === 0) { this.toast('先に楽曲を読み込んでください'); return; }
+    const start = this.engine.currentTime;
+    if (start >= this.projectDuration - 0.2) { this.toast('再生位置を曲の途中に移動してください'); return; }
+    this.toast('切り抜き中...');
+    try {
+      const full = await this.engine.renderOffline(this.tracks, this.projectDuration, 44100);
+      const sr = full.sampleRate;
+      const s0 = Math.floor(start * sr);
+      const s1 = Math.min(full.length, s0 + Math.floor(sec * sr));
+      const len = s1 - s0;
+      if (len <= 0) { this.toast('切り抜けません'); return; }
+      let out = new AudioBuffer({ numberOfChannels: full.numberOfChannels, length: len, sampleRate: sr });
+      for (let c = 0; c < full.numberOfChannels; c++) out.copyToChannel(full.getChannelData(c).slice(s0, s1), c);
+      out = SF2ProTools.applyFade(out, 'in', 0.02, 'linear');
+      out = SF2ProTools.applyFade(out, 'out', Math.min(0.5, sec * 0.1), 'exponential');
+      const base = (($('export-title') && $('export-title').value) || 'studioflow2').replace(/[^\w\-]+/g, '_');
+      const bytes = SF2ExportManager.bufferToWAVBytes(out, 16, sr);
+      SF2ExportManager.download(new Blob([bytes], { type: 'audio/wav' }), `${base}_clip${Math.round(sec)}s.wav`);
+      this.toast(`${Math.round(sec)}秒の短尺を書き出しました`);
+    } catch (e) { this.toast('切り抜き失敗: ' + e.message); }
   }
 
   // ---------- undo / redo (snapshot) ----------

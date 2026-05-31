@@ -328,6 +328,22 @@ function detectBPM(buffer) {
   return Math.round(sr * 60 / lagSamples);
 }
 
+// Vocal enhancement (clarity): high-pass rumble, presence boost (~4kHz),
+// air (~10kHz) and gentle compression. Returns a processed AudioBuffer.
+async function enhanceVocal(buffer) {
+  const ctx = new OfflineAudioContext(buffer.numberOfChannels, buffer.length, buffer.sampleRate);
+  const src = ctx.createBufferSource(); src.buffer = buffer;
+  const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 95;
+  const pres = ctx.createBiquadFilter(); pres.type = 'peaking'; pres.frequency.value = 4000; pres.Q.value = 1; pres.gain.value = 4;
+  const air = ctx.createBiquadFilter(); air.type = 'highshelf'; air.frequency.value = 10000; air.gain.value = 2.5;
+  const comp = ctx.createDynamicsCompressor();
+  comp.threshold.value = -20; comp.knee.value = 6; comp.ratio.value = 3; comp.attack.value = 0.005; comp.release.value = 0.2;
+  const makeup = ctx.createGain(); makeup.gain.value = 1.15;
+  src.connect(hp); hp.connect(pres); pres.connect(air); air.connect(comp); comp.connect(makeup); makeup.connect(ctx.destination);
+  src.start(0);
+  return ctx.startRendering();
+}
+
 // Krumhansl-Schmuckler key detection
 function detectKey(buffer) {
   const data = buffer.getChannelData(0);
@@ -390,4 +406,5 @@ window.SF2ProTools = {
   computeEQMatch,
   detectBPM,
   detectKey,
+  enhanceVocal,
 };
