@@ -307,13 +307,17 @@ class StudioFlowDAW2 {
       head.className = 'track-head';
       head.style.borderLeftColor = track.color;
       head.innerHTML = `
-        <div class="track-title" title="${esc(track.name)}">${esc(track.name)}</div>
+        <div class="track-head-top">
+          <div class="track-title" title="${esc(track.name)}">${esc(track.name)}</div>
+          <button class="th-btn del" title="このトラック（曲）を削除"><i class="fas fa-trash"></i></button>
+        </div>
         <div class="track-head-ctrls">
-          <button class="th-btn mute ${track.muted ? 'on' : ''}" title="ミュート">M</button>
-          <button class="th-btn solo ${track.solo ? 'on' : ''}" title="ソロ">S</button>
-          <input type="range" class="th-vol" min="0" max="1.5" step="0.01" value="${track.volume}">
+          <button class="th-btn mute ${track.muted ? 'on' : ''}" title="ミュート（この曲だけ消音）">M</button>
+          <button class="th-btn solo ${track.solo ? 'on' : ''}" title="ソロ（この曲だけ再生）">S</button>
+          <input type="range" class="th-vol" min="0" max="1.5" step="0.01" value="${track.volume}" title="音量">
         </div>`;
       head.onclick = () => { this.selectedTrackId = track.id; this._renderTracks(); this._renderEffectsPanel(); };
+      head.querySelector('.del').onclick = e => { e.stopPropagation(); this.deleteTrack(track.id); };
       head.querySelector('.mute').onclick = e => { e.stopPropagation(); this.toggleMute(track.id); };
       head.querySelector('.solo').onclick = e => { e.stopPropagation(); this.toggleSolo(track.id); };
       head.querySelector('.th-vol').oninput = e => { e.stopPropagation(); this.setTrackVolume(track.id, parseFloat(e.target.value)); };
@@ -389,6 +393,22 @@ class StudioFlowDAW2 {
     track.clips.splice(idx + 1, 0, right);
     this._renderTracks();
     this._saveProject();
+  }
+
+  deleteTrack(id) {
+    const t = this.getTrack(id);
+    if (!t) return;
+    if (!confirm(`「${t.name}」を削除しますか？（元に戻すは Ctrl+Z）`)) return;
+    this._pushUndo();
+    this.engine.disconnectTrackNodes(t.nodes);
+    this.tracks = this.tracks.filter(x => x.id !== id);
+    this.originalBuffers.delete(id);
+    if (this.selectedTrackId === id) { this.selectedTrackId = null; this.selectedClipId = null; }
+    this.engine.tracks = this.tracks;
+    this._refreshPlaybackIfActive();
+    this._refreshAll();
+    this._saveProject();
+    this.toast('トラックを削除しました');
   }
 
   deleteSelectedClip() {
@@ -503,6 +523,7 @@ class StudioFlowDAW2 {
     $('btn-ai-separate').onclick = () => this._aiSeparate();
     $('btn-ai-midi').onclick = () => this._aiMidi();
     $('btn-ai-vocal').onclick = () => { this._switchBottom('vocal'); };
+    $('btn-pro-reset').onclick = () => this.resetToOriginal();
   }
 
   async _aiSeparate() {
@@ -573,11 +594,11 @@ class StudioFlowDAW2 {
           ${this._knob('Mid', 'eqMid', t)}
           ${this._knob('Lo', 'eqLow', t)}
         </div>
-        <div class="vu-meter"><div class="vu-bar" data-trk="${t.id}"></div></div>
-        <input type="range" class="strip-fader" min="0" max="1.5" step="0.01" value="${t.volume}" orient="vertical">
+        <div class="vu-meter" title="音量メーター（L/R）"><div class="vu-bar" data-trk="${t.id}"></div></div>
+        <input type="range" class="strip-fader" min="0" max="1.5" step="0.01" value="${t.volume}" orient="vertical" title="音量フェーダー">
         <div class="strip-ms">
-          <button class="ms-btn mute ${t.muted ? 'on' : ''}">M</button>
-          <button class="ms-btn solo ${t.solo ? 'on' : ''}">S</button>
+          <button class="ms-btn mute ${t.muted ? 'on' : ''}" title="ミュート">M</button>
+          <button class="ms-btn solo ${t.solo ? 'on' : ''}" title="ソロ">S</button>
         </div>`;
       s.querySelector('.strip-fader').oninput = e => this.setTrackVolume(t.id, parseFloat(e.target.value));
       s.querySelector('.mute').onclick = () => this.toggleMute(t.id);
@@ -605,7 +626,8 @@ class StudioFlowDAW2 {
 
   _knob(label, band, t) {
     const v = t.nodes?.[band]?.gain?.value ?? 0;
-    return `<div class="knob-wrap"><input type="range" class="knob" data-band="${band}" min="-12" max="12" step="0.5" value="${v}"><span>${label}</span></div>`;
+    const titles = { eqHigh: '高音(EQ Hi) ±12dB', eqMid: '中音(EQ Mid) ±12dB', eqLow: '低音(EQ Lo) ±12dB' };
+    return `<div class="knob-wrap"><input type="range" class="knob" data-band="${band}" min="-12" max="12" step="0.5" value="${v}" title="${titles[band] || label}"><span>${label}</span></div>`;
   }
 
   // ---------- mastering panel ----------
