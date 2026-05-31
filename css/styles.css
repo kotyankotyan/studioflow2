@@ -273,28 +273,31 @@ label { font-size: 12px; color: var(--text-dim); }
 
 /* mixer */
 /* only when active — must not override .bottom-pane (display:none) when hidden */
-#pane-mixer.active { display: flex; gap: 12px; align-items: stretch; }
+#pane-mixer.active { display: flex; gap: 12px; align-items: flex-start; }
 .mixer-strips { display: flex; gap: 10px; }
 .channel-strip {
-  width: 92px; background: var(--bg-surface); border: 1px solid var(--border);
+  width: 110px; flex-shrink: 0; background: var(--bg-surface); border: 1px solid var(--border);
   border-radius: 8px; padding: 8px; display: flex; flex-direction: column; align-items: center; gap: 8px;
 }
-.channel-strip.master { width: 360px; border-color: var(--accent); }
-.strip-head { width: 100%; text-align: center; font-size: 11px; font-weight: 700; padding: 4px; border-radius: 5px; color: #000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.channel-strip.master { width: 340px; border-color: var(--accent); }
+.strip-head { width: 100%; text-align: center; font-size: 11px; font-weight: 700; padding: 4px 6px; border-radius: 5px; color: #000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-sizing: border-box; }
 .channel-strip.master .strip-head { background: var(--accent); color: #fff; }
-.strip-knobs { display: flex; gap: 4px; }
-.knob-wrap { display: flex; flex-direction: column; align-items: center; font-size: 9px; color: var(--text-dim); }
-.knob { width: 50px; }
+/* EQ as vertically-stacked rows (label + slider) so they fit the strip width */
+.strip-knobs { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+.knob-wrap { display: flex; flex-direction: row; align-items: center; gap: 6px; font-size: 10px; color: var(--text-dim); width: 100%; }
+.knob-wrap span { width: 24px; flex-shrink: 0; }
+.knob { flex: 1; min-width: 0; width: auto; }
 .vu-meter { width: 14px; height: 70px; background: var(--waveform-bg); border-radius: 3px; position: relative; overflow: hidden; }
 .vu-bar { position: absolute; bottom: 0; width: 100%; background: linear-gradient(to top, var(--accent-green), var(--accent-yellow), var(--accent)); height: 0; }
-.strip-fader { writing-mode: vertical-lr; direction: rtl; height: 80px; }
+.strip-fader { writing-mode: vertical-lr; direction: rtl; height: 90px; }
 .strip-ms { display: flex; gap: 4px; }
 .ms-btn { width: 24px; height: 22px; font-size: 11px; padding: 0; }
 .ms-btn.on.mute { background: var(--accent); color: #fff; }
 .ms-btn.on.solo { background: var(--accent-yellow); color: #000; }
 .lufs-display, .phase-meter { font-size: 12px; color: var(--text-dim); }
 .lufs-display span, .phase-meter span { color: var(--accent-green); font-weight: 600; }
-#mixer-spectrum { background: var(--waveform-bg); border-radius: 6px; }
+#mixer-spectrum { width: 100%; max-width: 320px; height: 90px; display: block; background: var(--waveform-bg); border-radius: 6px; }
+#master-fader { writing-mode: horizontal-tb; direction: ltr; width: 90%; height: auto; }
 
 /* preset chips */
 .preset-grid { display: flex; flex-wrap: wrap; gap: 8px; }
