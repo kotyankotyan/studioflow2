@@ -529,17 +529,21 @@ class StudioFlowDAW2 {
   async _aiSeparate() {
     const t = this.getTrack(this.selectedTrackId) || this.tracks[0];
     if (!t || !t.clips[0]) { this.toast('トラックを選択してください'); return; }
-    this.toast('ステム分離中...');
+    if (t.clips[0].buffer.numberOfChannels < 2) { this.toast('分離はステレオ音源のみ対応です'); return; }
+    const btn = $('btn-ai-separate');
+    btn.disabled = true;
+    this.toast('音源分離中... 0%');
     try {
-      const stems = await SF2StemSeparator.separateAllStems(t.clips[0].buffer);
+      const { vocals, instrumental } = await SF2StemSeparator.separateVocalInstrumental(
+        t.clips[0].buffer, 1, pct => this.toast(`音源分離中... ${Math.round(pct * 100)}%`));
       this._pushUndo();
-      for (const [stemKey, buf] of Object.entries(stems)) {
-        const part = stemKey === 'vocals' ? 'vocal' : (PART_COLORS[stemKey] ? stemKey : 'other');
-        this.addTrack({ name: `${t.name} - ${PART_LABELS[part] || part}`, part, buffer: buf });
-      }
+      this.addTrack({ name: `${t.name} - ボーカル`, part: 'vocal', buffer: vocals });
+      this.addTrack({ name: `${t.name} - 伴奏`, part: 'other', buffer: instrumental });
       this._refreshAll();
-      this.toast('分離完了');
+      this._saveProject();
+      this.toast('ボーカル / 伴奏 の2トラックに分離しました');
     } catch (e) { this.toast('分離失敗: ' + e.message); }
+    finally { btn.disabled = false; }
   }
 
   _aiMidi() {

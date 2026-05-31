@@ -68,6 +68,109 @@ async function separateAllStems(buffer, onProgress) {
   return stems;
 }
 
+// ===== Model-free 2-stem separation (vocals / instrumental) =====
+// Frequency-domain center extraction (ADRess-style): per frequency bin, judge
+// how "center-panned & in-phase" the content is (typical for lead vocals) and
+// build a soft mask. No ML model, no external data — fully local, license-free.
+
+// In-place iterative radix-2 FFT. inverse=true performs the IFFT (and scales).
+function _fft(re, im, inverse) {
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) {
+    let bit = n >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) { const tr = re[i]; re[i] = re[j]; re[j] = tr; const ti = im[i]; im[i] = im[j]; im[j] = ti; }
+  }
+  for (let len = 2; len <= n; len <<= 1) {
+    const ang = (inverse ? 2 : -2) * Math.PI / len;
+    const wr = Math.cos(ang), wi = Math.sin(ang);
+    for (let i = 0; i < n; i += len) {
+      let cr = 1, ci = 0;
+      for (let k = 0; k < len / 2; k++) {
+        const a = i + k, b = i + k + len / 2;
+        const tr = re[b] * cr - im[b] * ci;
+        const ti = re[b] * ci + im[b] * cr;
+        re[b] = re[a] - tr; im[b] = im[a] - ti;
+        re[a] += tr; im[a] += ti;
+        const ncr = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = ncr;
+      }
+    }
+  }
+  if (inverse) for (let i = 0; i < n; i++) { re[i] /= n; im[i] /= n; }
+}
+
+// Separate a stereo buffer into { vocals, instrumental } AudioBuffers.
+// strength 0..1 controls how aggressively centered content is treated as vocal.
+async function separateVocalInstrumental(buffer, strength = 1, onProgress) {
+  const sr = buffer.sampleRate, len = buffer.length;
+  const stereo = buffer.numberOfChannels >= 2;
+  const L = buffer.getChannelData(0);
+  const R = stereo ? buffer.getChannelData(1) : L;
+
+  const N = 4096, hop = N / 4;
+  const win = new Float32Array(N);
+  for (let i = 0; i < N; i++) win[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / N);
+
+  const voL = new Float32Array(len), voR = new Float32Array(len);
+  const inL = new Float32Array(len), inR = new Float32Array(len);
+  const norm = new Float32Array(len);
+
+  const reL = new Float32Array(N), imL = new Float32Array(N);
+  const reR = new Float32Array(N), imR = new Float32Array(N);
+  const vRe = new Float32Array(N), vIm = new Float32Array(N);
+  const lRe = new Float32Array(N), lIm = new Float32Array(N);
+  const rRe = new Float32Array(N), rIm = new Float32Array(N);
+
+  const frames = Math.ceil(len / hop);
+  let frame = 0;
+  for (let pos = 0; pos < len; pos += hop, frame++) {
+    for (let k = 0; k < N; k++) {
+      const idx = pos + k;
+      const w = win[k];
+      reL[k] = idx < len ? L[idx] * w : 0; imL[k] = 0;
+      reR[k] = idx < len ? R[idx] * w : 0; imR[k] = 0;
+    }
+    _fft(reL, imL, false); _fft(reR, imR, false);
+
+    for (let k = 0; k < N; k++) {
+      const lr = reL[k], li = imL[k], rr = reR[k], ri = imR[k];
+      const magL = Math.hypot(lr, li), magR = Math.hypot(rr, ri);
+      const cross = lr * rr + li * ri;                       // Re(L * conj(R))
+      const coh = cross / (magL * magR + 1e-9);              // -1..1 (1 = in phase)
+      const bal = 2 * magL * magR / (magL * magL + magR * magR + 1e-9); // 1 = equal level
+      let m = Math.max(0, coh) * bal;                        // 0..1 center-ness
+      m = Math.min(1, m * (0.5 + strength));                 // strength scaling
+      const midr = (lr + rr) * 0.5, midi = (li + ri) * 0.5;
+      vRe[k] = midr * m; vIm[k] = midi * m;                  // vocals = centered mid
+      lRe[k] = lr - midr * m; lIm[k] = li - midi * m;        // instrumental = rest
+      rRe[k] = rr - midr * m; rIm[k] = ri - midi * m;
+    }
+    _fft(vRe, vIm, true); _fft(lRe, lIm, true); _fft(rRe, rIm, true);
+
+    for (let k = 0; k < N; k++) {
+      const idx = pos + k;
+      if (idx >= len) break;
+      const w = win[k];
+      voL[idx] += vRe[k] * w; voR[idx] += vRe[k] * w;        // vocal mono -> both ch
+      inL[idx] += lRe[k] * w; inR[idx] += rRe[k] * w;
+      norm[idx] += w * w;
+    }
+
+    if ((frame & 127) === 0) {
+      if (onProgress) onProgress(frame / frames);
+      await new Promise(r => setTimeout(r, 0));              // yield to keep UI alive
+    }
+  }
+  for (let i = 0; i < len; i++) {
+    const n = norm[i] || 1;
+    voL[i] /= n; voR[i] /= n; inL[i] /= n; inR[i] /= n;
+  }
+  const mk = (a, b) => { const buf = new AudioBuffer({ numberOfChannels: 2, length: len, sampleRate: sr }); buf.copyToChannel(a, 0); buf.copyToChannel(b, 1); return buf; };
+  if (onProgress) onProgress(1);
+  return { vocals: mk(voL, voR), instrumental: mk(inL, inR) };
+}
+
 // MIDI note extraction (amplitude envelope to note events)
 function extractMIDIEvents(buffer) {
   const sr = buffer.sampleRate;
@@ -150,4 +253,4 @@ function exportMIDI(events, bpm = 120) {
   return new Uint8Array([...header, ...trackHeader, ...trackEvents]);
 }
 
-window.SF2StemSeparator = { separateStem, separateAllStems, extractMIDIEvents, exportMIDI };
+window.SF2StemSeparator = { separateStem, separateAllStems, separateVocalInstrumental, extractMIDIEvents, exportMIDI };

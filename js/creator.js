@@ -47,10 +47,14 @@ async function convertBPM(buffer, originalBPM, targetBPM) {
   return offCtx.startRendering();
 }
 
-// Vocal removal using mid/side processing
+// Vocal removal (karaoke). Uses the spectral center-extraction separator for a
+// far cleaner instrumental when the source is stereo; falls back to mid/side.
 async function removeVocals(buffer, removeAmount = 0.8) {
-  const { removeVocalMidSide } = window.SF2VocalProcessor;
-  return removeVocalMidSide(buffer, removeAmount);
+  if (buffer.numberOfChannels >= 2 && window.SF2StemSeparator?.separateVocalInstrumental) {
+    const { instrumental } = await window.SF2StemSeparator.separateVocalInstrumental(buffer, removeAmount);
+    return instrumental;
+  }
+  return window.SF2VocalProcessor.removeVocalMidSide(buffer, removeAmount);
 }
 
 // Stem separation for creator
