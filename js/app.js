@@ -530,6 +530,11 @@ class StudioFlowDAW2 {
     const t = this.getTrack(this.selectedTrackId) || this.tracks[0];
     if (!t || !t.clips[0]) { this.toast('トラックを選択してください'); return; }
     if (t.clips[0].buffer.numberOfChannels < 2) { this.toast('分離はステレオ音源のみ対応です'); return; }
+    // Near-mono sources have no spatial cue for center extraction — warn honestly.
+    const corr = SF2StemSeparator.stereoCorrelation(t.clips[0].buffer);
+    if (corr > 0.96) {
+      if (!confirm(`この曲は左右の広がりが狭く“ほぼモノラル”です（相関 ${corr.toFixed(2)}）。\nこの方式はステレオの空間差で分離するため、モノラル寄りの曲では十分に分離できません。\nそれでも実行しますか？`)) return;
+    }
     const btn = $('btn-ai-separate');
     btn.disabled = true;
     this.toast('音源分離中... 0%');

@@ -100,6 +100,16 @@ function _fft(re, im, inverse) {
   if (inverse) for (let i = 0; i < n; i++) { re[i] /= n; im[i] /= n; }
 }
 
+// L/R correlation in [0..1]. ~1 = near-mono (no spatial cue → can't separate).
+function stereoCorrelation(buffer) {
+  if (buffer.numberOfChannels < 2) return 1;
+  const L = buffer.getChannelData(0), R = buffer.getChannelData(1);
+  const n = L.length, step = Math.max(1, Math.floor(n / 200000));
+  let sLR = 0, sLL = 0, sRR = 0;
+  for (let i = 0; i < n; i += step) { sLR += L[i] * R[i]; sLL += L[i] * L[i]; sRR += R[i] * R[i]; }
+  return sLR / (Math.sqrt(sLL * sRR) + 1e-12);
+}
+
 // Separate a stereo buffer into { vocals, instrumental } AudioBuffers.
 // strength 0..1 controls how aggressively centered content is treated as vocal.
 async function separateVocalInstrumental(buffer, strength = 1, onProgress) {
@@ -150,7 +160,7 @@ async function separateVocalInstrumental(buffer, strength = 1, onProgress) {
       const coh = cross / (magL * magR + 1e-9);              // -1..1 (1 = in phase)
       const bal = 2 * magL * magR / (magL * magL + magR * magR + 1e-9); // 1 = equal level
       let m = Math.max(0, coh) * bal;                        // 0..1 center-ness
-      m = Math.pow(m, 1.5) * fWeight[k];                     // sharpen + vocal-band only
+      m = Math.pow(m, 2.5) * fWeight[k];                     // sharpen + vocal-band only
       m = Math.min(1, m * (0.5 + strength));                 // strength scaling
       const midr = (lr + rr) * 0.5, midi = (li + ri) * 0.5;
       vRe[k] = midr * m; vIm[k] = midi * m;                  // vocals = centered mid
@@ -264,4 +274,4 @@ function exportMIDI(events, bpm = 120) {
   return new Uint8Array([...header, ...trackHeader, ...trackEvents]);
 }
 
-window.SF2StemSeparator = { separateStem, separateAllStems, separateVocalInstrumental, extractMIDIEvents, exportMIDI };
+window.SF2StemSeparator = { separateStem, separateAllStems, separateVocalInstrumental, stereoCorrelation, extractMIDIEvents, exportMIDI };
