@@ -51,6 +51,7 @@ class StudioFlowDAW2 {
     this._renderAutomation();
     this._renderRemix();
     this._renderProTools();
+    this.applyMastering();   // 既定マスタリング状態をエンジンへ反映
     this._startMeters();
 
     await this._tryRestore();
@@ -141,7 +142,7 @@ class StudioFlowDAW2 {
       name,
       part,
       color: PART_COLORS[part] || PART_COLORS.other,
-      volume: 1, pan: 0, muted: false, solo: false,
+      volume: 1, pan: 0, muted: false, solo: false, reverb: 0,
       nodes: null,
       clips: [],
       fxClips: [],
@@ -439,7 +440,9 @@ class StudioFlowDAW2 {
   }
   setTrackReverb(id, amount) {
     const t = this.getTrack(id);
-    if (t && t.nodes) {
+    if (!t) return;
+    t.reverb = amount;     // stored state — used by export & persistence
+    if (t.nodes) {
       t.nodes.reverbWet.gain.setTargetAtTime(amount, 0, 0.01);
       t.nodes.reverbDry.gain.setTargetAtTime(1 - amount * 0.5, 0, 0.01);
     }
@@ -475,7 +478,7 @@ class StudioFlowDAW2 {
       ${this._eqSlider('eqMid', 'EQ Mid', t)}
       ${this._eqSlider('eqHigh', 'EQ High', t)}
       <div class="prop-row"><label>パン</label><input type="range" id="fx-pan" min="-1" max="1" step="0.01" value="${t.pan}"></div>
-      <div class="prop-row"><label>リバーブ</label><input type="range" id="fx-rev" min="0" max="1" step="0.01" value="0"></div>`;
+      <div class="prop-row"><label>リバーブ</label><input type="range" id="fx-rev" min="0" max="1" step="0.01" value="${t.reverb ?? 0}"></div>`;
     ['eqLow', 'eqMid', 'eqHigh'].forEach(band => {
       $('fx-' + band).oninput = e => this.setTrackEQ(t.id, band, parseFloat(e.target.value));
     });
@@ -630,15 +633,47 @@ class StudioFlowDAW2 {
         <div class="prop-row"><label>Ceiling</label><input type="range" id="mst-ceil" min="-3" max="0" step="0.1" value="-0.3"></div>
         <div class="prop-row"><label>幅 %</label><input type="range" id="mst-width" min="0" max="200" step="5" value="100"></div>
       </div>`;
-    pane.querySelectorAll('.preset-chip').forEach(c => c.onclick = () => { this.mastering.applyPreset(c.dataset.preset); this.toast(`マスタリング: ${labelMap[c.dataset.preset]}`); });
-    pane.querySelectorAll('.mst-eq').forEach(s => s.oninput = e => {
-      const cur = { ...this.mastering.state.eq, [s.dataset.band]: parseFloat(e.target.value) };
-      this.mastering.setEQ(cur);
+    pane.querySelectorAll('.preset-chip').forEach(c => c.onclick = () => {
+      this.mastering.applyPreset(c.dataset.preset);
+      this.applyMastering();
+      this._syncMasteringPanel();
+      this.toast(`マスタリング: ${labelMap[c.dataset.preset]}`);
     });
-    $('mst-thr').oninput = e => this.mastering.setCompressor({ ...this.mastering.state.comp, threshold: parseFloat(e.target.value) });
-    $('mst-ratio').oninput = e => this.mastering.setCompressor({ ...this.mastering.state.comp, ratio: parseFloat(e.target.value) });
-    $('mst-ceil').oninput = e => this.mastering.setLimiter({ ...this.mastering.state.limiter, ceiling: parseFloat(e.target.value) });
-    $('mst-width').oninput = e => this.mastering.setStereoWidth(parseFloat(e.target.value) / 100);
+    pane.querySelectorAll('.mst-eq').forEach(s => s.oninput = e => {
+      this.mastering.setEQ({ ...this.mastering.state.eq, [s.dataset.band]: parseFloat(e.target.value) });
+      this.applyMastering();
+    });
+    $('mst-thr').oninput = e => { this.mastering.setCompressor({ ...this.mastering.state.comp, threshold: parseFloat(e.target.value) }); this.applyMastering(); };
+    $('mst-ratio').oninput = e => { this.mastering.setCompressor({ ...this.mastering.state.comp, ratio: parseFloat(e.target.value) }); this.applyMastering(); };
+    $('mst-ceil').oninput = e => { this.mastering.setLimiter({ ...this.mastering.state.limiter, ceiling: parseFloat(e.target.value) }); this.applyMastering(); };
+    $('mst-width').oninput = e => { this.mastering.setStereoWidth(parseFloat(e.target.value) / 100); this.applyMastering(); };
+  }
+
+  // マスタリング状態(this.mastering.state)を、実際に音が通るエンジンのマスター系へ反映。
+  // これによりライブ再生・書き出しの両方にマスタリングが効く。
+  applyMastering() {
+    const st = this.mastering.state;
+    const e = this.engine;
+    const map = { low: 'eqLow', lowMid: 'eqLowMid', mid: 'eqMid', highMid: 'eqHighMid', high: 'eqHigh' };
+    for (const [k, band] of Object.entries(map)) e.setMasterEQ(band, st.eq[k] ?? 0);
+    if (e.masterCompressor) {
+      e.masterCompressor.threshold.setTargetAtTime(st.comp.threshold ?? -24, 0, 0.01);
+      e.masterCompressor.ratio.setTargetAtTime(st.comp.ratio ?? 3, 0, 0.01);
+      e.masterCompressor.attack.setTargetAtTime(st.comp.attack ?? 0.003, 0, 0.01);
+      e.masterCompressor.release.setTargetAtTime(st.comp.release ?? 0.25, 0, 0.01);
+    }
+    if (e.masterLimiter) e.masterLimiter.threshold.setTargetAtTime(st.limiter.ceiling ?? -0.3, 0, 0.01);
+    e.setMasterVolume(Math.pow(10, (st.limiter.gain ?? 0) / 20));
+    e.setStereoWidth(st.stereoWidth ?? 1);
+  }
+
+  // プリセット適用後にスライダー表示を状態へ同期
+  _syncMasteringPanel() {
+    const st = this.mastering.state;
+    document.querySelectorAll('.mst-eq').forEach(s => { s.value = st.eq[s.dataset.band] ?? 0; });
+    const set = (id, v) => { const el = $(id); if (el) el.value = v; };
+    set('mst-thr', st.comp.threshold); set('mst-ratio', st.comp.ratio);
+    set('mst-ceil', st.limiter.ceiling); set('mst-width', (st.stereoWidth ?? 1) * 100);
   }
 
   // ---------- vocal panel ----------
@@ -916,7 +951,7 @@ class StudioFlowDAW2 {
         </div>
         <div class="part-ctrl"><label>パン</label><input type="range" class="pc-pan" min="-1" max="1" step="0.01" value="${t.pan}"></div>
         <div class="part-ctrl"><label>EQ</label><input type="range" class="pc-eq" min="-12" max="12" step="0.5" value="0"></div>
-        <div class="part-ctrl"><label>Rev</label><input type="range" class="pc-rev" min="0" max="1" step="0.01" value="0"></div>
+        <div class="part-ctrl"><label>Rev</label><input type="range" class="pc-rev" min="0" max="1" step="0.01" value="${t.reverb ?? 0}"></div>
         <button class="pc-fx action-btn">FX</button>`;
       const canvas = card.querySelector('.part-wave');
       if (t.clips[0]) requestAnimationFrame(() => SF2Waveform.drawMiniWaveform(canvas, t.clips[0].buffer, t.color));
@@ -1142,7 +1177,7 @@ class StudioFlowDAW2 {
       bpm: this.bpm, originalBpm: this.originalBpm,
       tracks: this.tracks.map(t => ({
         id: t.id, name: t.name, part: t.part, color: t.color,
-        volume: t.volume, pan: t.pan, muted: t.muted, solo: t.solo,
+        volume: t.volume, pan: t.pan, muted: t.muted, solo: t.solo, reverb: t.reverb ?? 0,
         clips: t.clips.map(c => ({ ...c })),       // buffers are shared by reference
         fxClips: (t.fxClips || []).map(f => ({ ...f })),
       })),
@@ -1158,6 +1193,8 @@ class StudioFlowDAW2 {
       t.nodes = this.engine.createTrackNodes(t);
       t.nodes.gainNode.gain.value = t.volume;
       t.nodes.panNode.pan.value = t.pan;
+      t.nodes.reverbWet.gain.value = t.reverb ?? 0;
+      t.nodes.reverbDry.gain.value = 1 - (t.reverb ?? 0) * 0.5;
       return t;
     });
     this.engine.tracks = this.tracks;
@@ -1252,7 +1289,7 @@ class StudioFlowDAW2 {
       for (const t of this.tracks) {
         const trackMeta = {
           id: t.id, name: t.name, part: t.part, color: t.color,
-          volume: t.volume, pan: t.pan, muted: t.muted, solo: t.solo,
+          volume: t.volume, pan: t.pan, muted: t.muted, solo: t.solo, reverb: t.reverb ?? 0,
           fxClips: t.fxClips || [],
           clips: [],
         };
@@ -1275,9 +1312,12 @@ class StudioFlowDAW2 {
       this.engine.setBPM(this.bpm); this.engine.setOriginalBPM(this.originalBpm);
       for (const tm of meta.tracks) {
         const track = { ...tm, nodes: null, clips: [] };
+        track.reverb = tm.reverb ?? 0;
         track.nodes = this.engine.createTrackNodes(track);
         track.nodes.gainNode.gain.value = track.volume;
         track.nodes.panNode.pan.value = track.pan;
+        track.nodes.reverbWet.gain.value = track.reverb;
+        track.nodes.reverbDry.gain.value = 1 - track.reverb * 0.5;
         for (const cm of tm.clips) {
           const buf = await SF2Storage.loadBuffer(cm.bufKey, this.engine.ctx);
           if (!buf) continue;

@@ -236,52 +236,87 @@ class AudioEngine {
     this._animFrameId = requestAnimationFrame(tick);
   }
 
-  // Render mix offline
+  // Render mix offline — mirrors the LIVE signal chain so the exported file
+  // matches what you hear: per-track 3-band EQ + reverb (convolver) + sweep,
+  // then the 5-band master EQ, compressor, limiter, master gain, and finally
+  // stereo-width via mid/side processing.
   async renderOffline(tracks, duration, sampleRate = 44100, onProgress) {
     const ch = 2;
     const len = Math.ceil(duration * sampleRate);
     const offCtx = new OfflineAudioContext(ch, len, sampleRate);
 
-    // Build master chain in offline context
-    const offEQ = offCtx.createBiquadFilter(); offEQ.type = 'lowshelf'; offEQ.frequency.value = 80;
+    // --- Master chain (5-band EQ → comp → limiter → gain), mirroring live ---
+    const eqDefs = [
+      ['eqLow', 'lowshelf', 80], ['eqLowMid', 'peaking', 300], ['eqMid', 'peaking', 1000],
+      ['eqHighMid', 'peaking', 4000], ['eqHigh', 'highshelf', 10000],
+    ];
+    const mEQ = eqDefs.map(([key, type, freq]) => {
+      const n = offCtx.createBiquadFilter();
+      n.type = type; n.frequency.value = freq;
+      if (type === 'peaking') n.Q.value = 1;
+      n.gain.value = this.masterEQ?.[key]?.gain?.value ?? 0;
+      return n;
+    });
     const offComp = offCtx.createDynamicsCompressor();
     offComp.threshold.value = this.masterCompressor.threshold.value;
+    offComp.knee.value = this.masterCompressor.knee.value;
     offComp.ratio.value = this.masterCompressor.ratio.value;
     offComp.attack.value = this.masterCompressor.attack.value;
     offComp.release.value = this.masterCompressor.release.value;
     const offLimiter = offCtx.createDynamicsCompressor();
     offLimiter.threshold.value = this.masterLimiter.threshold.value;
-    offLimiter.ratio.value = 20;
-    offLimiter.attack.value = 0.001;
-    offLimiter.release.value = 0.1;
+    offLimiter.knee.value = 0; offLimiter.ratio.value = 20;
+    offLimiter.attack.value = 0.001; offLimiter.release.value = 0.1;
     const offMasterGain = offCtx.createGain();
     offMasterGain.gain.value = this.masterGain.gain.value;
 
-    offEQ.connect(offComp);
+    for (let i = 0; i < mEQ.length - 1; i++) mEQ[i].connect(mEQ[i + 1]);
+    mEQ[mEQ.length - 1].connect(offComp);
     offComp.connect(offLimiter);
     offLimiter.connect(offMasterGain);
     offMasterGain.connect(offCtx.destination);
+    const masterIn = mEQ[0];
+
+    // Shared reverb impulse response for this render
+    const irBuf = (typeof SF2Effects !== 'undefined')
+      ? SF2Effects.createImpulseResponse(offCtx, 2, 2) : null;
 
     const bpmRatio = this._bpm / this._originalBpm;
+    const isSoloed = tracks.some(t => t.solo);
 
     for (const track of tracks) {
       if (track.muted || !track.clips || track.clips.length === 0) continue;
+      if (isSoloed && !track.solo) continue;
 
-      // Create offline track nodes
       const gainNode = offCtx.createGain(); gainNode.gain.value = track.volume ?? 1;
       const panNode = offCtx.createStereoPanner(); panNode.pan.value = track.pan ?? 0;
-      const offEQLow = offCtx.createBiquadFilter(); offEQLow.type = 'lowshelf'; offEQLow.frequency.value = 200;
-      offEQLow.gain.value = track.nodes?.eqLow?.gain?.value ?? 0;
-      const offEQMid = offCtx.createBiquadFilter(); offEQMid.type = 'peaking'; offEQMid.frequency.value = 1000;
-      offEQMid.gain.value = track.nodes?.eqMid?.gain?.value ?? 0;
-      const offEQHigh = offCtx.createBiquadFilter(); offEQHigh.type = 'highshelf'; offEQHigh.frequency.value = 4000;
-      offEQHigh.gain.value = track.nodes?.eqHigh?.gain?.value ?? 0;
+      const eqLow = offCtx.createBiquadFilter(); eqLow.type = 'lowshelf'; eqLow.frequency.value = 200;
+      eqLow.gain.value = track.nodes?.eqLow?.gain?.value ?? 0;
+      const eqMid = offCtx.createBiquadFilter(); eqMid.type = 'peaking'; eqMid.frequency.value = 1000; eqMid.Q.value = 1;
+      eqMid.gain.value = track.nodes?.eqMid?.gain?.value ?? 0;
+      const eqHigh = offCtx.createBiquadFilter(); eqHigh.type = 'highshelf'; eqHigh.frequency.value = 4000;
+      eqHigh.gain.value = track.nodes?.eqHigh?.gain?.value ?? 0;
+
+      // reverb dry/wet (mirror live convolver mix). Use the stored track.reverb
+      // amount — reading the live AudioParam .value is unreliable right after a
+      // setTargetAtTime ramp.
+      const wetAmt = (track.reverb != null) ? track.reverb : (track.nodes?.reverbWet?.gain?.value ?? 0);
+      const reverbDry = offCtx.createGain(); reverbDry.gain.value = 1 - wetAmt * 0.5;
+      const reverbWet = offCtx.createGain(); reverbWet.gain.value = wetAmt;
+      const reverbMix = offCtx.createGain();
+      const sweep = offCtx.createBiquadFilter();
+      sweep.type = 'lowpass';
+      sweep.frequency.value = track.nodes?.sweepFilter?.frequency?.value ?? 20000;
 
       gainNode.connect(panNode);
-      panNode.connect(offEQLow);
-      offEQLow.connect(offEQMid);
-      offEQMid.connect(offEQHigh);
-      offEQHigh.connect(offEQ);
+      panNode.connect(eqLow); eqLow.connect(eqMid); eqMid.connect(eqHigh);
+      eqHigh.connect(reverbDry); reverbDry.connect(reverbMix);
+      if (irBuf && reverbWet.gain.value > 0.0001) {
+        const conv = offCtx.createConvolver(); conv.buffer = irBuf;
+        eqHigh.connect(conv); conv.connect(reverbWet); reverbWet.connect(reverbMix);
+      }
+      reverbMix.connect(sweep);
+      sweep.connect(masterIn);
 
       for (const clip of track.clips) {
         const src = offCtx.createBufferSource();
@@ -297,19 +332,29 @@ class AudioEngine {
       }
     }
 
+    let result;
     if (onProgress) {
-      const interval = setInterval(() => {
-        const pct = offCtx.currentTime / duration;
-        onProgress(Math.min(pct, 0.99));
-      }, 200);
-      const result = await offCtx.startRendering();
+      const interval = setInterval(() => onProgress(Math.min(offCtx.currentTime / duration, 0.99)), 200);
+      result = await offCtx.startRendering();
       clearInterval(interval);
-      if (onProgress) onProgress(1);
-      return result;
+      onProgress(1);
+    } else {
+      result = await offCtx.startRendering();
     }
-    return offCtx.startRendering();
+
+    // Stereo width via mid/side (post-process), mirroring the mastering panel.
+    const width = this._stereoWidth ?? 1;
+    if (ch === 2 && Math.abs(width - 1) > 0.001) {
+      const L = result.getChannelData(0), R = result.getChannelData(1);
+      for (let i = 0; i < L.length; i++) {
+        const mid = (L[i] + R[i]) * 0.5, side = (L[i] - R[i]) * 0.5 * width;
+        L[i] = mid + side; R[i] = mid - side;
+      }
+    }
+    return result;
   }
 
+  setStereoWidth(w) { this._stereoWidth = w; }
   setBPM(bpm) { this._bpm = bpm; }
   setOriginalBPM(bpm) { this._originalBpm = bpm; }
   setLoop(enabled, start = 0, end = Infinity) {
