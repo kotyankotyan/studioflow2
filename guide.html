@@ -28,6 +28,7 @@
         .tab.active{background:var(--bg-tertiary);color:#fff;}
         .tab.easy.active{box-shadow:inset 0 -3px 0 var(--accent-secondary);}
         .tab.pro.active{box-shadow:inset 0 -3px 0 var(--accent-purple);}
+        .tab.flow.active{box-shadow:inset 0 -3px 0 var(--accent-green);}
         section.mode{display:none;}
         section.mode.active{display:block;}
         .intro{background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:16px 20px;margin-bottom:24px;color:var(--text-dim);}
@@ -64,6 +65,7 @@
         <div class="tabs">
             <div class="tab easy active" data-mode="easy"><i class="fas fa-wand-magic-sparkles"></i> かんたんモード</div>
             <div class="tab pro" data-mode="pro"><i class="fas fa-sliders"></i> 上級者モード</div>
+            <div class="tab flow" data-mode="flow"><i class="fas fa-list-ol"></i> おすすめ手順</div>
         </div>
 
         <!-- ============ かんたんモード ============ -->
@@ -188,6 +190,47 @@
             </div>
 
             <div class="tip"><b>ヒント：</b> 編集はすべて自動保存され、次回開いたときに復元されます。やり直したいときは左サイドバーの <span class="chip">初期化</span> で原曲に戻せます。</div>
+        </section>
+
+        <!-- ============ おすすめ手順 ============ -->
+        <section class="mode flow">
+            <div class="intro">
+                <b>1曲ずつ、この順番で仕上げる編集フローです。</b>
+                ①〜③＋⑥は「曲本体」を整え、④ループ／⑤短尺は「派生ファイル」を書き出します。
+                <br>準備：<b>上級者モード</b>で左サイドバー「読込」→単体で曲を読み込み、<b>クリップ（波形）をクリックして選択</b>してから始めます（プロ仕上げ／ボーカル補正は選択中クリップに適用されます）。
+            </div>
+
+            <div class="step pro"><div class="num">1</div><div class="body">
+                <h3><i class="fas fa-volume-high"></i> 音量統一・正規化</h3>
+                <p>下パネル <span class="chip">プロ仕上げ</span> →「クリーンアップ」→ <b>LUFS</b> を <span class="chip">-14</span>（配信向け）にして <b>正規化</b> → 続けて <b>True Peak</b> を <span class="chip">-1</span> で <b>リミット</b>（クリップ防止）。</p>
+            </div></div>
+
+            <div class="step pro"><div class="num">2</div><div class="body">
+                <h3><i class="fas fa-wand-magic"></i> ボーカル強化</h3>
+                <p>下パネル <span class="chip">ボーカル補正</span> → <b>ボーカル強化（明瞭化）</b> →「選択クリップを強化」。低域のこもりを除去し、抜け(4kHz)と空気感(10kHz)を追加して軽く圧縮します。</p>
+            </div></div>
+
+            <div class="step pro"><div class="num">3</div><div class="body">
+                <h3><i class="fas fa-sliders"></i> EQ調整</h3>
+                <p>トラック単位は右サイドバー <span class="chip">エフェクト</span> の <b>EQ Low / Mid / High</b>。曲全体は下パネル <span class="chip">マスタリング</span> の <b>5バンドEQ</b>（プリセットも可）。やりすぎたら左サイドバー <span class="chip">初期化</span> で戻せます。</p>
+            </div></div>
+
+            <div class="step easy"><div class="num">4</div><div class="body">
+                <h3><i class="fas fa-repeat"></i> ループ加工</h3>
+                <p>右上 <span class="chip">かんたん</span> でかんたんモードへ → <b>素材を作る</b> → <b>シームレスループ</b> → クロスフェード秒数を決めて <b>作成</b>（ループ用WAVが書き出されます）。終わったら上級者モードへ戻ります。</p>
+            </div></div>
+
+            <div class="step pro"><div class="num">5</div><div class="body">
+                <h3><i class="fas fa-scissors"></i> 短尺切り抜き（サビから30〜60秒）</h3>
+                <p>再生してサビの頭で一時停止、またはタイムラインをクリックして <b>プレイヘッドをサビ位置へ</b>。下パネル <span class="chip">プロ仕上げ</span> →「短尺切り抜き（SNS用）」で長さ <span class="chip">60秒</span> または <span class="chip">30秒</span> を選び <b>再生位置から書き出し</b>。前後に自動フェードが付きます。</p>
+            </div></div>
+
+            <div class="step pro"><div class="num">6</div><div class="body">
+                <h3><i class="fas fa-down-left-and-up-right-to-center"></i> フェードイン・アウト</h3>
+                <p>下パネル <span class="chip">プロ仕上げ</span> →「クリーンアップ」→ <b>フェードイン / フェードアウト</b>（選択クリップ＝曲本体に適用）。※⑤の短尺はすでに自動フェード済みなので、⑥は曲そのもののイントロ/アウトロ用です。</p>
+            </div></div>
+
+            <div class="tip"><b>最後に：</b> 右上 <span class="chip">書き出し</span> で完成ファイルを出力（<span class="chip">✨おまかせプロ仕上げ</span>は既定でON）。次の曲はトラックを <span class="chip">🗑 削除</span> するか、左サイドバー「読込」で新しく読み込んで同じ手順を繰り返します。</div>
         </section>
     </div>
 
