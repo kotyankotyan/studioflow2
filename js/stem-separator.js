@@ -112,6 +112,16 @@ async function separateVocalInstrumental(buffer, strength = 1, onProgress) {
   const win = new Float32Array(N);
   for (let i = 0; i < N; i++) win[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / N);
 
+  // Per-bin vocal-band weight: keep centered bass/kick (<~120Hz) and very high
+  // air/cymbals (>~9kHz) OUT of the vocal stem (they belong to the instrumental).
+  // Computed symmetrically because bins above N/2 are the mirrored frequencies.
+  const ramp = (x, a, b) => x <= a ? 0 : x >= b ? 1 : (x - a) / (b - a);
+  const fWeight = new Float32Array(N);
+  for (let k = 0; k < N; k++) {
+    const f = (k <= N / 2 ? k : N - k) * sr / N;
+    fWeight[k] = ramp(f, 90, 260) * (1 - ramp(f, 9000, 14000));
+  }
+
   const voL = new Float32Array(len), voR = new Float32Array(len);
   const inL = new Float32Array(len), inR = new Float32Array(len);
   const norm = new Float32Array(len);
@@ -140,6 +150,7 @@ async function separateVocalInstrumental(buffer, strength = 1, onProgress) {
       const coh = cross / (magL * magR + 1e-9);              // -1..1 (1 = in phase)
       const bal = 2 * magL * magR / (magL * magL + magR * magR + 1e-9); // 1 = equal level
       let m = Math.max(0, coh) * bal;                        // 0..1 center-ness
+      m = Math.pow(m, 1.5) * fWeight[k];                     // sharpen + vocal-band only
       m = Math.min(1, m * (0.5 + strength));                 // strength scaling
       const midr = (lr + rr) * 0.5, midi = (li + ri) * 0.5;
       vRe[k] = midr * m; vIm[k] = midi * m;                  // vocals = centered mid
