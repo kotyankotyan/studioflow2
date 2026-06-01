@@ -235,7 +235,10 @@
                 <div class="form-row"><label>アルバム</label><input type="text" id="export-album"></div>
                 <div class="form-row"><label>アルバムアート</label><input type="file" id="export-art" accept="image/jpeg"></div>
             </div>
-            <div class="modal-foot"><button id="export-confirm" class="primary"><i class="fas fa-download"></i> 書き出す</button></div>
+            <div class="modal-foot">
+                <div id="export-progress" class="export-progress hidden"><div id="export-progress-bar"></div><span id="export-progress-label">0%</span></div>
+                <button id="export-confirm" class="primary"><i class="fas fa-download"></i> 書き出す</button>
+            </div>
         </div>
 
         <div id="modal-settings" class="modal hidden">

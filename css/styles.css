@@ -341,6 +341,10 @@ label { font-size: 12px; color: var(--text-dim); }
 .modal-body .form-row label { width: 130px; flex-shrink: 0; }
 .modal-body .form-row select, .modal-body .form-row input[type="text"] { flex: 1; }
 .modal-foot { padding: 14px 20px; border-top: 1px solid var(--border); text-align: right; }
+.export-progress { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.export-progress #export-progress-bar { flex: 1; height: 10px; background: var(--accent-secondary); border-radius: 5px; width: 0; transition: width .15s; }
+.export-progress { background: var(--waveform-bg); border-radius: 6px; padding: 8px 10px; }
+.export-progress #export-progress-label { font-size: 12px; color: var(--text-dim); min-width: 96px; text-align: right; }
 .modal-foot button { padding: 10px 20px; }
 
 .shortcut-table { width: 100%; border-collapse: collapse; }

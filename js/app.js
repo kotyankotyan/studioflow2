@@ -432,12 +432,14 @@ class StudioFlowDAW2 {
   // ---------- track controls ----------
   toggleMute(id) {
     const t = this.getTrack(id);
+    this._pushUndo();
     t.muted = !t.muted;
     this._refreshPlaybackIfActive();
     this._renderTracks(); this._renderMixer();
   }
   toggleSolo(id) {
     const t = this.getTrack(id);
+    this._pushUndo();
     t.solo = !t.solo;
     this._refreshPlaybackIfActive();
     this._renderTracks(); this._renderMixer();
@@ -1090,6 +1092,7 @@ class StudioFlowDAW2 {
   }
 
   applyEasyPreset(name) {
+    this._pushUndo();
     for (const t of this.tracks) {
       // ベースラインへリセット → プリセットは「絶対値」で適用（冪等・切替可能にする）
       t.muted = false;
@@ -1103,6 +1106,8 @@ class StudioFlowDAW2 {
       SF2Effects.applyEQPreset(t, name);
     }
     this.mastering.applyPreset(['pop', 'rock', 'hiphop', 'edm'].includes(name) ? name : 'pop');
+    this.applyMastering();          // route mastering to the live/export chain
+    this._syncMasteringPanel();
     this.toast(`プリセット適用: ${name}`);
     this._refreshPlaybackIfActive();
     this._renderEasyParts();
@@ -1251,12 +1256,21 @@ class StudioFlowDAW2 {
     const meta = { title: $('export-title').value, artist: $('export-artist').value, album: $('export-album').value };
 
     const btn = $('export-confirm');
+    const setProg = (pct, label) => {
+      const wrap = $('export-progress'), bar = $('export-progress-bar'), lab = $('export-progress-label');
+      if (!wrap) return;
+      wrap.classList.remove('hidden');
+      bar.style.width = Math.round(pct * 100) + '%';
+      lab.textContent = label || (Math.round(pct * 100) + '%');
+    };
     btn.disabled = true; btn.textContent = '書き出し中...';
+    setProg(0, 'レンダリング 0%');
     try {
       let buf = await this.engine.renderOffline(this.tracks, this.projectDuration, sr,
-        pct => { btn.textContent = `仕上げ処理中 ${Math.round(pct * 100)}%`; });
+        pct => setProg(pct * 0.85, `レンダリング ${Math.round(pct * 100)}%`));
       if (autoMaster) {
-        btn.textContent = '✨ プロ仕上げ中...';
+        setProg(0.9, '✨ プロ仕上げ中...');
+        await new Promise(r => setTimeout(r, 0));   // let the bar paint before the sync DSP (works even when backgrounded)
         const r = this.autoMaster(buf, targetLUFS);
         buf = r.buf;
         this.toast(`仕上げ完了: ${r.beforeLUFS.toFixed(1)} → ${r.afterLUFS.toFixed(1)} LUFS`);
@@ -1264,6 +1278,8 @@ class StudioFlowDAW2 {
         buf = SF2ProTools.peakNormalize(buf, -0.3);
       }
 
+      setProg(0.96, 'ファイル生成中...');
+      await new Promise(r => setTimeout(r, 0));
       const base = (meta.title || 'studioflow2').replace(/[^\w\-]+/g, '_');
       if (fmt === 'wav' || fmt === 'flac') {
         let bytes = SF2ExportManager.bufferToWAVBytes(buf, bit, sr);
@@ -1276,6 +1292,7 @@ class StudioFlowDAW2 {
         await SF2ExportManager.exportWebM(buf, `${base}.webm`);
         this.toast('MP3未対応のためWebM(Opus)で書き出しました');
       }
+      setProg(1, '完了');
       this._setStep('export');
       this.toast('書き出し完了');
       this._closeModal();
@@ -1283,6 +1300,7 @@ class StudioFlowDAW2 {
       this.toast('書き出し失敗: ' + e.message);
     } finally {
       btn.disabled = false; btn.innerHTML = '<i class="fas fa-download"></i> 書き出す';
+      const wrap = $('export-progress'); if (wrap) setTimeout(() => wrap.classList.add('hidden'), 600);
     }
   }
 
@@ -1337,9 +1355,15 @@ class StudioFlowDAW2 {
   _captureState() {
     return {
       bpm: this.bpm, originalBpm: this.originalBpm,
+      mastering: JSON.parse(JSON.stringify(this.mastering.state)),   // EQ/comp/limiter/width
       tracks: this.tracks.map(t => ({
         id: t.id, name: t.name, part: t.part, color: t.color,
         volume: t.volume, pan: t.pan, muted: t.muted, solo: t.solo, reverb: t.reverb ?? 0,
+        eq: {                                                        // per-track EQ gains
+          low: t.nodes?.eqLow?.gain?.value ?? 0,
+          mid: t.nodes?.eqMid?.gain?.value ?? 0,
+          high: t.nodes?.eqHigh?.gain?.value ?? 0,
+        },
         clips: t.clips.map(c => ({ ...c })),       // buffers are shared by reference
         fxClips: (t.fxClips || []).map(f => ({ ...f })),
       })),
@@ -1357,9 +1381,21 @@ class StudioFlowDAW2 {
       t.nodes.panNode.pan.value = t.pan;
       t.nodes.reverbWet.gain.value = t.reverb ?? 0;
       t.nodes.reverbDry.gain.value = 1 - (t.reverb ?? 0) * 0.5;
+      const eq = s.eq || { low: 0, mid: 0, high: 0 };
+      t.nodes.eqLow.gain.value = eq.low; t.nodes.eqMid.gain.value = eq.mid; t.nodes.eqHigh.gain.value = eq.high;
       return t;
     });
     this.engine.tracks = this.tracks;
+    // restore mastering chain
+    if (state.mastering) {
+      const m = state.mastering;
+      if (m.eq) this.mastering.setEQ(m.eq);
+      if (m.comp) this.mastering.setCompressor(m.comp);
+      if (m.limiter) this.mastering.setLimiter(m.limiter);
+      if (m.stereoWidth != null) this.mastering.setStereoWidth(m.stereoWidth);
+      this.applyMastering();
+      this._syncMasteringPanel();
+    }
     this._refreshAll();
   }
 
@@ -1522,6 +1558,18 @@ class StudioFlowDAW2 {
     $('btn-logout').onclick = () => { SF2Auth.clearSession(); location.reload(); };
     const help = $('btn-pro-help');
     if (help) help.onclick = () => this.openGuide();
+
+    // Undo coverage for sliders: capture state once at the start of any range
+    // drag (faders, EQ knobs, pan, reverb, mastering, part cards, clip gain),
+    // so a whole drag becomes a single, undoable change.
+    let _sliderEditing = false;
+    document.addEventListener('pointerdown', e => {
+      if (!_sliderEditing && e.target.matches && e.target.matches('input[type="range"]')) {
+        this._pushUndo();
+        _sliderEditing = true;
+      }
+    });
+    document.addEventListener('pointerup', () => { _sliderEditing = false; });
   }
 
   // 使い方ガイドを別タブで開く（同一オリジンの静的ページ）
