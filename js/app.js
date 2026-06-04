@@ -1040,6 +1040,8 @@ class StudioFlowDAW2 {
     $('easy-export').onclick = () => this._openModal('export');
     $('btn-easy-play').onclick = () => this.togglePlay();
     $('btn-easy-stop').onclick = () => this.stop();
+    $('btn-easy-rew').onclick = () => this.seek(this.engine.currentTime - 10);
+    $('btn-easy-fwd').onclick = () => this.seek(this.engine.currentTime + 10);
     $('btn-easy-help').onclick = () => this.openGuide();
 
     $('btn-to-pro').onclick = () => this.switchMode('pro');
