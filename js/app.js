@@ -1100,22 +1100,32 @@ class StudioFlowDAW2 {
 
   applyEasyPreset(name) {
     this._pushUndo();
-    for (const t of this.tracks) {
-      // ベースラインへリセット → プリセットは「絶対値」で適用（冪等・切替可能にする）
-      t.muted = false;
-      this.setTrackVolume(t.id, 1);
-      if (name === 'karaoke' && t.part === 'vocal') {
-        t.muted = true; if (t.nodes) t.nodes.gainNode.gain.setTargetAtTime(0, 0, 0.01);
-      } else if (name === 'vocal' && t.part !== 'vocal') {
-        this.setTrackVolume(t.id, 0.8);
-      }
-      if (name === 'bass') this.setTrackEQ(t.id, 'eqLow', t.part === 'bass' ? 6 : 2);
-      SF2Effects.applyEQPreset(t, name);
-    }
-    this.mastering.applyPreset(['pop', 'rock', 'hiphop', 'edm'].includes(name) ? name : 'pop');
-    this.applyMastering();          // route mastering to the live/export chain
+    // プリセットは「全体の雰囲気（マスター）」に専念し、各パートの手動編集
+    // （音量/EQ/パン/リバーブ）には触れない → プリセットと詳細編集を併用できる。
+    const LABEL = { pop: 'ポップ', rock: 'ロック', hiphop: 'ヒップホップ', edm: 'EDM', chill: 'チル', vocal: 'ボーカル際立ち', bass: '重低音', karaoke: 'カラオケ' };
+    const MAP = {
+      pop: { p: 'pop' }, rock: { p: 'rock' }, hiphop: { p: 'hiphop' }, edm: { p: 'edm' },
+      chill: { p: 'jazz' },
+      vocal: { p: 'pop', eq: { mid: 2, highMid: 3, high: 2 } },   // 抜けを強調
+      bass: { p: 'hiphop', eq: { low: 5, lowMid: 1 } },           // 低域を強調
+      karaoke: { p: 'pop' },
+    };
+    const cfg = MAP[name] || { p: 'pop' };
+    this.mastering.applyPreset(cfg.p);
+    if (cfg.eq) this.mastering.setEQ({ ...this.mastering.state.eq, ...cfg.eq });
+    this.applyMastering();
     this._syncMasteringPanel();
-    this.toast(`プリセット適用: ${name}`);
+
+    // カラオケはボーカルをミュート（本来の用途）。他のプリセット選択時は解除。
+    // それ以外のパート設定（音量/EQ/パン/リバーブ）は一切上書きしない。
+    for (const t of this.tracks) {
+      if (t.part !== 'vocal') continue;
+      const mute = (name === 'karaoke');
+      t.muted = mute;
+      if (t.nodes) t.nodes.gainNode.gain.setTargetAtTime(mute ? 0 : t.volume, 0, 0.01);
+    }
+
+    this.toast(`プリセット適用: ${LABEL[name] || name}（各パートの調整は維持されます）`);
     this._refreshPlaybackIfActive();
     this._renderEasyParts();
   }
