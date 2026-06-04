@@ -1079,7 +1079,7 @@ class StudioFlowDAW2 {
           <button class="pc-step" data-d="0.1">＋</button>
         </div>
         <div class="part-ctrl"><label>パン</label><input type="range" class="pc-pan" min="-1" max="1" step="0.01" value="${t.pan}"></div>
-        <div class="part-ctrl"><label>EQ</label><input type="range" class="pc-eq" min="-12" max="12" step="0.5" value="0"></div>
+        <div class="part-ctrl"><label>EQ</label><input type="range" class="pc-eq" min="-12" max="12" step="0.5" value="${(t.nodes?.eqMid?.gain?.value ?? 0).toFixed(1)}"></div>
         <div class="part-ctrl"><label>Rev</label><input type="range" class="pc-rev" min="0" max="1" step="0.01" value="${t.reverb ?? 0}"></div>
         <button class="pc-fx action-btn">FX</button>`;
       const canvas = card.querySelector('.part-wave');
