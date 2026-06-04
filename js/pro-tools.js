@@ -328,6 +328,77 @@ function detectBPM(buffer) {
   return Math.round(sr * 60 / lagSamples);
 }
 
+// In-place iterative radix-2 FFT (inverse scales by N).
+function _fftPV(re, im, inverse) {
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) {
+    let bit = n >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) { let t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; }
+  }
+  for (let len = 2; len <= n; len <<= 1) {
+    const ang = (inverse ? 2 : -2) * Math.PI / len, wr = Math.cos(ang), wi = Math.sin(ang);
+    for (let i = 0; i < n; i += len) {
+      let cr = 1, ci = 0;
+      for (let k = 0; k < len / 2; k++) {
+        const a = i + k, b = a + len / 2;
+        const tr = re[b] * cr - im[b] * ci, ti = re[b] * ci + im[b] * cr;
+        re[b] = re[a] - tr; im[b] = im[a] - ti; re[a] += tr; im[a] += ti;
+        const ncr = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = ncr;
+      }
+    }
+  }
+  if (inverse) for (let i = 0; i < n; i++) { re[i] /= n; im[i] /= n; }
+}
+
+// Pitch-preserving time-stretch (phase vocoder). ratio = outLen/inLen
+// (>1 = longer/slower, <1 = shorter/faster). Pitch is unchanged.
+async function timeStretch(buffer, ratio, onProgress) {
+  if (!isFinite(ratio) || Math.abs(ratio - 1) < 0.003) return buffer;
+  const N = 2048, Ha = N >> 2, Hs = Math.max(1, Math.round(Ha * ratio));
+  const sr = buffer.sampleRate, ch = buffer.numberOfChannels, len = buffer.length;
+  const win = new Float32Array(N);
+  for (let i = 0; i < N; i++) win[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / N);
+  const omega = new Float32Array(N);
+  for (let k = 0; k < N; k++) omega[k] = 2 * Math.PI * k / N;     // expected phase advance / sample
+  const numFrames = Math.max(1, Math.floor((len - N) / Ha) + 1);
+  const outLen = (numFrames - 1) * Hs + N;
+  const out = new AudioBuffer({ numberOfChannels: ch, length: outLen, sampleRate: sr });
+
+  const re = new Float32Array(N), im = new Float32Array(N);
+  const mag = new Float32Array(N), phase = new Float32Array(N), prevPhase = new Float32Array(N), sumPhase = new Float32Array(N);
+  const norm = new Float32Array(outLen);
+  const TWO_PI = 2 * Math.PI;
+
+  for (let c = 0; c < ch; c++) {
+    const inp = buffer.getChannelData(c), o = out.getChannelData(c);
+    prevPhase.fill(0); sumPhase.fill(0);
+    for (let f = 0; f < numFrames; f++) {
+      const start = f * Ha;
+      for (let k = 0; k < N; k++) { const idx = start + k; re[k] = idx < len ? inp[idx] * win[k] : 0; im[k] = 0; }
+      _fftPV(re, im, false);
+      for (let k = 0; k < N; k++) { mag[k] = Math.hypot(re[k], im[k]); phase[k] = Math.atan2(im[k], re[k]); }
+      if (f === 0) { for (let k = 0; k < N; k++) sumPhase[k] = phase[k]; }
+      else {
+        for (let k = 0; k < N; k++) {
+          let d = phase[k] - prevPhase[k] - omega[k] * Ha;
+          d -= TWO_PI * Math.round(d / TWO_PI);                 // wrap to [-pi,pi]
+          sumPhase[k] += Hs * (omega[k] + d / Ha);              // accumulate at synthesis hop
+        }
+      }
+      for (let k = 0; k < N; k++) { prevPhase[k] = phase[k]; re[k] = mag[k] * Math.cos(sumPhase[k]); im[k] = mag[k] * Math.sin(sumPhase[k]); }
+      _fftPV(re, im, true);
+      const os = f * Hs;
+      for (let k = 0; k < N; k++) { const i = os + k; if (i < outLen) { o[i] += re[k] * win[k]; if (c === 0) norm[i] += win[k] * win[k]; } }
+      if ((f & 31) === 0 && onProgress) { onProgress((c * numFrames + f) / (ch * numFrames)); await new Promise(r => setTimeout(r, 0)); }
+    }
+  }
+  for (let c = 0; c < ch; c++) { const o = out.getChannelData(c); for (let i = 0; i < outLen; i++) { const n = norm[i] || 1; o[i] /= n; } }
+  if (onProgress) onProgress(1);
+  return out;
+}
+
 // Vocal enhancement (clarity): high-pass rumble, presence boost (~4kHz),
 // air (~10kHz) and gentle compression. Returns a processed AudioBuffer.
 async function enhanceVocal(buffer) {
@@ -407,4 +478,5 @@ window.SF2ProTools = {
   detectBPM,
   detectKey,
   enhanceVocal,
+  timeStretch,
 };

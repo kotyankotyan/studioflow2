@@ -184,7 +184,7 @@ class StudioFlowDAW2 {
     $('btn-zoom-out').onclick = () => this.setZoom(this.zoom / 1.3);
     $('btn-undo').onclick = () => this.undo();
     $('btn-redo').onclick = () => this.redo();
-    $('bpm-input').onchange = e => this.setBPM(parseFloat(e.target.value));
+    $('bpm-input').onchange = e => this.applyTempo(parseFloat(e.target.value));
   }
 
   togglePlay() {
@@ -247,7 +247,42 @@ class StudioFlowDAW2 {
     this.bpm = bpm;
     this.engine.setBPM(bpm);
     $('bpm-input').value = bpm;
-    // BPM is a tempo display value only — it no longer warps playback speed/pitch.
+  }
+
+  // テンポ変更（音程は維持）: 位相ボコーダで全クリップを時間伸縮し、タイムラインも合わせる。
+  async applyTempo(newBpm) {
+    if (!isFinite(newBpm) || newBpm < 20 || newBpm > 300) { $('bpm-input').value = Math.round(this.bpm); return; }
+    if (this.tracks.length === 0) { this.setBPM(newBpm); return; }
+    const ratio = this.bpm / newBpm;            // current → new (faster = ratio<1 = shorter)
+    if (Math.abs(ratio - 1) < 0.005) { this.setBPM(newBpm); return; }
+    if (!confirm(`テンポを ${Math.round(newBpm)} BPM に変更しますか？\n音程は保ったまま速さだけ変わります（処理に数秒かかります）。`)) {
+      $('bpm-input').value = Math.round(this.bpm); return;
+    }
+    if (this.engine._isPlaying) this.stop();
+    this._pushUndo();
+    const input = $('bpm-input'); input.disabled = true;
+    this.toast('テンポ変更中... 0%');
+    try {
+      for (const t of this.tracks) {
+        for (const c of t.clips) {
+          c.buffer = await SF2ProTools.timeStretch(c.buffer, ratio, pct => this.toast(`テンポ変更中... ${Math.round(pct * 100)}%`));
+          c.duration = c.buffer.duration;
+          c.startTime *= ratio;
+          c.offset = (c.offset || 0) * ratio;
+          c._saved = false;
+        }
+        // the stretched audio becomes this track's new "original" for compare/reset
+        if (t.clips[0]) this.originalBuffers.set(t.id, t.clips[0].buffer);
+      }
+      this.bpm = newBpm; this.engine.setBPM(newBpm);
+      input.value = Math.round(newBpm);
+      this._refreshAll(); this._saveProject();
+      this.toast(`テンポを ${Math.round(newBpm)} BPM に変更しました（音程はそのまま）`);
+    } catch (e) {
+      this.toast('テンポ変更失敗: ' + e.message);
+    } finally {
+      input.disabled = false;
+    }
   }
 
   setZoom(z) {
