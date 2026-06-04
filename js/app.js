@@ -426,7 +426,7 @@ class StudioFlowDAW2 {
     const clip = this.getClip(trackId, clipId);
     if (!clip) return;
     clip._gain = gain;
-    if (this.engine._isPlaying) { this.engine.stop(); this.play(); }
+    this._refreshPlaybackIfActive();
   }
 
   // ---------- track controls ----------
@@ -470,7 +470,12 @@ class StudioFlowDAW2 {
     }
   }
   _refreshPlaybackIfActive() {
-    if (this.engine._isPlaying) { this.engine.stop(); this.play(); }
+    if (this.engine._isPlaying) {
+      const pos = this.engine.currentTime;   // keep the live position…
+      this.engine.stop();
+      this.engine._playOffset = pos;         // …and resume from there (not from the top)
+      this.play();
+    }
   }
 
   // ---------- properties / effects side panels ----------
