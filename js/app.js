@@ -179,6 +179,8 @@ class StudioFlowDAW2 {
     $('btn-stop').onclick = () => this.stop();
     $('btn-rewind').onclick = () => this.seek(0);
     $('btn-forward').onclick = () => this.seek(this.projectDuration);
+    $('btn-pro-rew').onclick = () => this.seek(this.engine.currentTime - 10);
+    $('btn-pro-fwd').onclick = () => this.seek(this.engine.currentTime + 10);
     $('btn-loop').onclick = () => this.toggleLoop();
     $('btn-zoom-in').onclick = () => this.setZoom(this.zoom * 1.3);
     $('btn-zoom-out').onclick = () => this.setZoom(this.zoom / 1.3);
