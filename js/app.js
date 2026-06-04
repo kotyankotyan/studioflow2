@@ -1121,16 +1121,40 @@ class StudioFlowDAW2 {
   }
 
   toggleOriginalCompare() {
+    if (this.tracks.length === 0) return;
     this._comparing = !this._comparing;
-    for (const t of this.tracks) {
-      const orig = this.originalBuffers.get(t.id);
-      if (orig && t.clips[0]) {
-        if (this._comparing) { t._editedBuf = t.clips[0].buffer; t.clips[0].buffer = orig; }
-        else if (t._editedBuf) { t.clips[0].buffer = t._editedBuf; }
+    if (this._comparing) {
+      // Save the full edited state, then bypass ALL processing to play the raw
+      // original: original buffers + flat EQ/reverb/volume/pan + flat mastering.
+      this._compareSnapshot = this._captureState();
+      for (const t of this.tracks) {
+        const orig = this.originalBuffers.get(t.id);
+        if (orig && t.clips[0]) {
+          t.clips[0].buffer = orig; t.clips[0].duration = orig.duration; t.clips[0].offset = 0; t.clips[0]._gain = 1;
+        }
+        t.volume = 1; t.pan = 0; t.muted = false; t.solo = false; t.reverb = 0;
+        const n = t.nodes;
+        if (n) {
+          n.gainNode.gain.value = 1; n.panNode.pan.value = 0;
+          n.eqLow.gain.value = 0; n.eqMid.gain.value = 0; n.eqHigh.gain.value = 0;
+          n.reverbWet.gain.value = 0; n.reverbDry.gain.value = 1;
+          if (n.sweepFilter) n.sweepFilter.frequency.value = 20000;
+        }
       }
+      this.mastering.setEQ({ low: 0, lowMid: 0, mid: 0, highMid: 0, high: 0 });
+      this.mastering.setCompressor({ threshold: -24, ratio: 3, attack: 0.003, release: 0.25 });
+      this.mastering.setLimiter({ ceiling: -0.3, gain: 0 });
+      this.mastering.setStereoWidth(1);
+      this.applyMastering();
+      this._refreshAll();
+      this._refreshPlaybackIfActive();
+      this.toast('原曲（編集前）を再生中');
+    } else {
+      // Restore the edited state in full.
+      if (this._compareSnapshot) this._applyState(this._compareSnapshot);
+      this._refreshPlaybackIfActive();
+      this.toast('編集版に戻しました');
     }
-    this.toast(this._comparing ? '原曲を再生中' : '編集版に戻しました');
-    this._refreshPlaybackIfActive();
   }
 
   resetToOriginal() {
