@@ -16,6 +16,7 @@ class StudioFlowDAW2 {
     this.tracks = [];
     this.selectedTrackId = null;
     this.selectedClipId = null;
+    this.selection = null;             // { trackId, clipId, s0, s1 } range in buffer samples
     this.tool = 'select';
     this.zoom = 1;
     this.originalBuffers = new Map();  // trackId → pristine buffer (原曲比較/初期化)
@@ -390,20 +391,71 @@ class StudioFlowDAW2 {
     label.textContent = clip.name;
     el.appendChild(label);
 
-    el.onclick = e => {
-      e.stopPropagation();
-      if (this.tool === 'cut') {
-        const rect = el.getBoundingClientRect();
-        const localT = (e.clientX - rect.left) / this.pxPerSec;
-        this.cutClip(track.id, clip.id, clip.startTime + localT);
-      } else {
-        this.selectedTrackId = track.id;
-        this.selectedClipId = clip.id;
-        this._renderTracks();
-        this._renderPropertiesPanel();
-      }
+    // range-selection overlay (drag on a clip to choose a section)
+    const sr = clip.buffer.sampleRate;
+    const sel = document.createElement('div');
+    sel.className = 'clip-selection';
+    el.appendChild(sel);
+    const drawSel = () => {
+      const s = this.selection;
+      if (s && s.clipId === clip.id) {
+        const aSec = s.s0 / sr - (clip.offset || 0), bSec = s.s1 / sr - (clip.offset || 0);
+        sel.style.display = 'block';
+        sel.style.left = (aSec * this.pxPerSec) + 'px';
+        sel.style.width = Math.max(1, (bSec - aSec) * this.pxPerSec) + 'px';
+      } else { sel.style.display = 'none'; }
     };
+    drawSel();
+
+    el.addEventListener('mousedown', e => {
+      e.stopPropagation();
+      const rect = el.getBoundingClientRect();
+      const localT = (e.clientX - rect.left) / this.pxPerSec;
+      if (this.tool === 'cut') { this.cutClip(track.id, clip.id, clip.startTime + localT); return; }
+      this.selectedTrackId = track.id; this.selectedClipId = clip.id;
+      const startT = Math.max(0, Math.min(clip.duration, localT));
+      let moved = false;
+      const move = ev => {
+        const t = Math.max(0, Math.min(clip.duration, (ev.clientX - rect.left) / this.pxPerSec));
+        if (Math.abs(t - startT) > 0.03) {
+          moved = true;
+          const a = Math.min(startT, t), b = Math.max(startT, t);
+          this.selection = { trackId: track.id, clipId: clip.id, s0: Math.floor(((clip.offset || 0) + a) * sr), s1: Math.floor(((clip.offset || 0) + b) * sr) };
+          drawSel();
+        }
+      };
+      const up = () => {
+        document.removeEventListener('mousemove', move);
+        document.removeEventListener('mouseup', up);
+        if (!moved) { this.selection = null; this._renderTracks(); }   // plain click = select clip, clear range
+        this._renderPropertiesPanel();
+      };
+      document.addEventListener('mousemove', move);
+      document.addEventListener('mouseup', up);
+    });
     return el;
+  }
+
+  // Apply a (sync or async) buffer-processing function to either the selected
+  // range of the clip, or the whole clip if there is no range selection.
+  async _processClipRange(clip, fn) {
+    const s = this.selection;
+    const buf = clip.buffer, sr = buf.sampleRate, ch = buf.numberOfChannels;
+    if (!s || s.clipId !== clip.id) return await fn(buf);
+    const s0 = Math.max(0, s.s0), s1 = Math.min(buf.length, s.s1);
+    if (s1 - s0 < sr * 0.05) return await fn(buf);                  // too small → whole clip
+    const mid = new AudioBuffer({ numberOfChannels: ch, length: s1 - s0, sampleRate: sr });
+    for (let c = 0; c < ch; c++) mid.copyToChannel(buf.getChannelData(c).slice(s0, s1), c);
+    const proc = await fn(mid);
+    const newLen = s0 + proc.length + (buf.length - s1);
+    const out = new AudioBuffer({ numberOfChannels: ch, length: newLen, sampleRate: sr });
+    for (let c = 0; c < ch; c++) {
+      const d = out.getChannelData(c), src = buf.getChannelData(c);
+      d.set(src.subarray(0, s0), 0);
+      d.set(proc.getChannelData(Math.min(c, proc.numberOfChannels - 1)), s0);
+      d.set(src.subarray(s1), s0 + proc.length);
+    }
+    return out;
   }
 
   // ---------- clip editing ----------
@@ -782,18 +834,9 @@ class StudioFlowDAW2 {
       </div>`;
     $('vp-sep-strength').oninput = e => { this.sepStrength = parseFloat(e.target.value); $('vp-sep-val').textContent = Math.round(this.sepStrength * 100) + '%'; };
     $('vp-separate').onclick = () => this._aiSeparate();
-    $('vp-enhance').onclick = async () => {
-      const clip = this._selectedClipBuffer();
-      if (!clip) { this.toast('クリップを選択してください'); return; }
+    $('vp-enhance').onclick = () => {
       this.toast('ボーカル強化中...');
-      try {
-        const out = await SF2ProTools.enhanceVocal(clip.buffer);
-        this._pushUndo();
-        this._replaceClipBuffer(clip, out);
-        this._refreshAll(); this._saveProject();
-        this._refreshPlaybackIfActive();
-        this.toast('ボーカルを強化しました');
-      } catch (e) { this.toast('強化失敗: ' + e.message); }
+      this._applyClipProc(b => SF2ProTools.enhanceVocal(b), 'ボーカルを強化しました');
     };
     $('vp-apply-autotune').onclick = () => {
       const t = this.getTrack(this.selectedTrackId);
@@ -953,6 +996,7 @@ class StudioFlowDAW2 {
     const pane = $('pane-protools');
     if (!pane) return;
     pane.innerHTML = `
+      <p class="pt-range-hint"><i class="fas fa-arrow-pointer"></i> 部分的にかけるには：トラックのクリップ（波形）を<b>左右にドラッグして範囲選択</b>してから、フェード/正規化/True Peak/ボーカル強化を実行（範囲未選択ならクリップ全体）。Escで選択解除。</p>
       <div class="protools-grid">
         <div class="panel-section">
           <h4><i class="fas fa-broom"></i> クリーンアップ</h4>
@@ -1008,19 +1052,42 @@ class StudioFlowDAW2 {
     clip._saved = false;     // mark dirty so _saveProject persists the NEW audio
   }
 
-  _proToolAction(act) {
-    if (act === 'extract') { this._extractShort(parseFloat($('pt-clip-len').value)); return; }
+  // Apply a buffer processor to the selected range (or whole clip). Same-length
+  // processors keep clip offset/duration; selection is cleared after.
+  async _applyClipProc(fn, doneMsg = '処理完了') {
     const clip = this._selectedClipBuffer();
     if (!clip) { this.toast('クリップを選択してください'); return; }
+    const hadRange = !!(this.selection && this.selection.clipId === clip.id);
+    this._pushUndo();
+    try {
+      const out = await this._processClipRange(clip, b => fn(b));
+      clip.buffer = out;
+      if (!clip.offset) clip.duration = out.duration;   // uncut clip → full buffer
+      clip._saved = false;
+      this.selection = null;
+      this._refreshAll(); this._saveProject(); this._refreshPlaybackIfActive();
+      this.toast(hadRange ? '選択範囲に適用しました' : doneMsg);
+    } catch (e) { this.toast('処理失敗: ' + e.message); }
+  }
+
+  _proToolAction(act) {
+    if (act === 'extract') { this._extractShort(parseFloat($('pt-clip-len').value)); return; }
     const P = SF2ProTools;
+    // range-capable processors (apply to the selected region if any)
+    const rangeFns = {
+      fadein: b => P.applyFade(b, 'in', Math.min(2, b.duration * 0.5), 'exponential'),
+      fadeout: b => P.applyFade(b, 'out', Math.min(3, b.duration * 0.5), 'exponential'),
+      lufs: b => P.normalizeLUFS(b, parseFloat($('pt-lufs').value)),
+      truepeak: b => P.applyTruePeakLimiter(b, parseFloat($('pt-tp').value)),
+    };
+    if (rangeFns[act]) { this._applyClipProc(rangeFns[act]); return; }
+
+    const clip = this._selectedClipBuffer();
+    if (!clip) { this.toast('クリップを選択してください'); return; }
     try {
       switch (act) {
         case 'trim': this._pushUndo(); this._replaceClipBuffer(clip, P.trimSilence(clip.buffer, 3)); break;
-        case 'fadein': this._pushUndo(); this._replaceClipBuffer(clip, P.applyFade(clip.buffer, 'in', 2, 'exponential')); break;
-        case 'fadeout': this._pushUndo(); this._replaceClipBuffer(clip, P.applyFade(clip.buffer, 'out', 3, 'exponential')); break;
         case 'suno': this.mastering.setEQ({ low: 1, lowMid: -3, mid: -1, highMid: -2, high: 1.5 }); this.applyMastering(); this._syncMasteringPanel(); this.toast('Suno EQ適用（マスターに反映）'); return;
-        case 'lufs': this._pushUndo(); this._replaceClipBuffer(clip, P.normalizeLUFS(clip.buffer, parseFloat($('pt-lufs').value))); break;
-        case 'truepeak': this._pushUndo(); this._replaceClipBuffer(clip, P.applyTruePeakLimiter(clip.buffer, parseFloat($('pt-tp').value))); break;
         case 'sweep': this._addFxClip('sweep'); this.toast('スウィープ追加'); return;
         case 'buildup': this._addFxClip('buildup'); this.toast('ビルドアップ追加'); return;
         case 'split': this._pushUndo(); this._autoSplit(clip, parseInt($('pt-split').value, 10)); break;
@@ -1625,7 +1692,7 @@ class StudioFlowDAW2 {
         case '+': case '=': this.setZoom(this.zoom * 1.3); break;
         case '-': this.setZoom(this.zoom / 1.3); break;
         case 'l': case 'L': this.toggleLoop(); break;
-        case 'Escape': this.selectedClipId = null; this._renderTracks(); break;
+        case 'Escape': this.selectedClipId = null; this.selection = null; this._renderTracks(); break;
         case 'Delete': this.deleteSelectedClip(); break;
         case '?': if (e.shiftKey) this._openModal('shortcuts'); break;
       }
