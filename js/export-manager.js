@@ -135,32 +135,87 @@ async function imageToJpeg(file, maxSize = 800, quality = 0.85) {
   return new Uint8Array(await blob.arrayBuffer());
 }
 
-// Build an ID3v2.3 tag containing a front-cover APIC frame.
-function _id3WithCover(jpeg) {
+function _concat(arrs) {
+  let total = 0; for (const a of arrs) total += a.length;
+  const out = new Uint8Array(total); let o = 0;
+  for (const a of arrs) { out.set(a, o); o += a.length; }
+  return out;
+}
+
+// ID3v2.3 text frame (UTF-16LE w/ BOM → handles Japanese).
+function _id3Text(id, text) {
+  if (!text) return new Uint8Array(0);
+  const body = new Uint8Array(1 + 2 + text.length * 2 + 2);
+  body[0] = 0x01;                       // encoding: UTF-16 with BOM
+  body[1] = 0xFF; body[2] = 0xFE;       // BOM (little endian)
+  for (let i = 0; i < text.length; i++) { const c = text.charCodeAt(i); body[3 + i * 2] = c & 0xff; body[4 + i * 2] = (c >> 8) & 0xff; }
+  const enc = new TextEncoder();
+  const frame = new Uint8Array(10 + body.length);
+  frame.set(enc.encode(id), 0);
+  const sz = body.length;
+  frame[4] = (sz >>> 24) & 0xff; frame[5] = (sz >>> 16) & 0xff; frame[6] = (sz >>> 8) & 0xff; frame[7] = sz & 0xff;
+  frame.set(body, 10);
+  return frame;
+}
+
+// ID3v2.3 APIC (front cover) frame from JPEG bytes.
+function _id3Apic(jpeg) {
+  if (!jpeg) return new Uint8Array(0);
   const enc = new TextEncoder();
   const mime = enc.encode('image/jpeg\0');
-  const head = new Uint8Array(1 + mime.length + 2); // encoding + mime\0 + picType + desc\0
-  head[0] = 0x00; head.set(mime, 1); head[1 + mime.length] = 0x03; head[2 + mime.length] = 0x00;
-  const frameData = new Uint8Array(head.length + jpeg.length);
-  frameData.set(head, 0); frameData.set(jpeg, head.length);
-  const fsize = frameData.length;
-  const frame = new Uint8Array(10 + fsize);
+  const head = new Uint8Array(1 + mime.length + 2);
+  head[0] = 0x00; head.set(mime, 1); head[1 + mime.length] = 0x03; head[2 + mime.length] = 0x00; // enc, mime\0, type=cover, desc\0
+  const body = _concat([head, jpeg]);
+  const frame = new Uint8Array(10 + body.length);
   frame.set(enc.encode('APIC'), 0);
-  frame[4] = (fsize >>> 24) & 0xff; frame[5] = (fsize >>> 16) & 0xff; frame[6] = (fsize >>> 8) & 0xff; frame[7] = fsize & 0xff;
-  frame.set(frameData, 10);
-  const tagSize = frame.length;
+  const sz = body.length;
+  frame[4] = (sz >>> 24) & 0xff; frame[5] = (sz >>> 16) & 0xff; frame[6] = (sz >>> 8) & 0xff; frame[7] = sz & 0xff;
+  frame.set(body, 10);
+  return frame;
+}
+
+// Build a complete ID3v2.3 tag (optional title/artist/album + cover).
+function buildID3(meta = {}, jpeg = null) {
+  const frames = _concat([
+    _id3Text('TIT2', meta.title), _id3Text('TPE1', meta.artist), _id3Text('TALB', meta.album), _id3Apic(jpeg),
+  ]);
   const header = new Uint8Array(10);
-  header.set(enc.encode('ID3'), 0); header[3] = 3; header[4] = 0; header[5] = 0;
-  header[6] = (tagSize >>> 21) & 0x7f; header[7] = (tagSize >>> 14) & 0x7f; header[8] = (tagSize >>> 7) & 0x7f; header[9] = tagSize & 0x7f;
-  const tag = new Uint8Array(header.length + frame.length);
-  tag.set(header, 0); tag.set(frame, header.length);
-  return tag;
+  header.set(new TextEncoder().encode('ID3'), 0); header[3] = 3; header[4] = 0; header[5] = 0;
+  const sz = frames.length;
+  header[6] = (sz >>> 21) & 0x7f; header[7] = (sz >>> 14) & 0x7f; header[8] = (sz >>> 7) & 0x7f; header[9] = sz & 0x7f;
+  return _concat([header, frames]);
+}
+
+// MP3 encode via lamejs. Returns Uint8Array of MP3 bytes.
+async function encodeMP3(buffer, kbps = 256, onProgress) {
+  if (typeof lamejs === 'undefined' || !lamejs.Mp3Encoder) throw new Error('MP3エンコーダ未読込');
+  let buf = buffer;
+  if (![32000, 44100, 48000].includes(buf.sampleRate)) buf = await resampleBuffer(buf, 44100);
+  const ch = Math.min(2, buf.numberOfChannels), sr = buf.sampleRate;
+  const enc = new lamejs.Mp3Encoder(ch, sr, kbps);
+  const toI16 = f => { const o = new Int16Array(f.length); for (let i = 0; i < f.length; i++) { const s = Math.max(-1, Math.min(1, f[i])); o[i] = s < 0 ? s * 0x8000 : s * 0x7FFF; } return o; };
+  const L = toI16(buf.getChannelData(0)), R = ch > 1 ? toI16(buf.getChannelData(1)) : null;
+  const block = 1152, n = L.length, parts = [];
+  for (let i = 0; i < n; i += block) {
+    const lc = L.subarray(i, i + block);
+    const mp3 = ch > 1 ? enc.encodeBuffer(lc, R.subarray(i, i + block)) : enc.encodeBuffer(lc);
+    if (mp3.length > 0) parts.push(new Uint8Array(mp3.buffer, mp3.byteOffset, mp3.length));
+    if (((i / block) & 63) === 0) { if (onProgress) onProgress(i / n); await new Promise(r => setTimeout(r, 0)); }
+  }
+  const end = enc.flush(); if (end.length > 0) parts.push(new Uint8Array(end.buffer, end.byteOffset, end.length));
+  if (onProgress) onProgress(1);
+  return _concat(parts);
+}
+
+// Prepend an ID3v2 tag (title/artist/album + cover) to MP3 bytes.
+function addMP3Tag(mp3, meta, jpeg) {
+  return _concat([buildID3(meta, jpeg), mp3]);
 }
 
 // Append album art to a WAV (as a RIFF "id3 " chunk holding an ID3v2 APIC).
 function addWAVCoverArt(wavBuf, jpeg) {
   const wav = new Uint8Array(wavBuf);
-  const tag = _id3WithCover(jpeg);
+  const tag = buildID3({}, jpeg);
   const pad = tag.length % 2;
   const chunk = new Uint8Array(8 + tag.length + pad);
   chunk.set(new TextEncoder().encode('id3 '), 0);
@@ -202,6 +257,9 @@ window.SF2ExportManager = {
   addWAVMetadata,
   imageToJpeg,
   addWAVCoverArt,
+  buildID3,
+  encodeMP3,
+  addMP3Tag,
   encodeViaMediaRecorder,
   resampleBuffer,
   download,

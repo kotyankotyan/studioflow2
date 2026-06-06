@@ -1436,13 +1436,20 @@ class StudioFlowDAW2 {
         }
         SF2ExportManager.download(new Blob([bytes], { type: 'audio/wav' }), `${base}.wav`);
         if (fmt === 'flac') this.toast('FLAC未対応のためWAVで書き出しました');
+      } else if (fmt === 'mp3') {
+        if (typeof lamejs !== 'undefined' && lamejs.Mp3Encoder) {
+          let mp3 = await SF2ExportManager.encodeMP3(buf, 256, pct => setProg(0.85 + pct * 0.13, `MP3エンコード ${Math.round(pct * 100)}%`));
+          let jpeg = null;
+          if (artFile) { try { jpeg = await SF2ExportManager.imageToJpeg(artFile); } catch (e) {} }
+          mp3 = SF2ExportManager.addMP3Tag(mp3, meta, jpeg);   // cover art shows in most players/Explorer
+          SF2ExportManager.download(new Blob([mp3], { type: 'audio/mpeg' }), `${base}.mp3`);
+        } else {
+          await SF2ExportManager.exportWebM(buf, `${base}.webm`);
+          this.toast('MP3エンコーダ未読込のためWebMで書き出しました');
+        }
       } else if (fmt === 'ogg') {
         await SF2ExportManager.exportOGG(buf, `${base}.ogg`);
-        if (artFile) this.toast('アルバムアートはWAV形式のみ埋め込めます');
-      } else if (fmt === 'mp3') {
-        await SF2ExportManager.exportWebM(buf, `${base}.webm`);
-        this.toast('MP3未対応のためWebM(Opus)で書き出しました');
-        if (artFile) this.toast('アルバムアートはWAV形式のみ埋め込めます');
+        if (artFile) this.toast('アルバムアートはMP3またはWAVで埋め込めます');
       }
       setProg(1, '完了');
       this._setStep('export');
