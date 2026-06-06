@@ -1426,16 +1426,23 @@ class StudioFlowDAW2 {
       setProg(0.96, 'ファイル生成中...');
       await new Promise(r => setTimeout(r, 0));
       const base = (meta.title || 'studioflow2').replace(/[^\w\-]+/g, '_');
+      const artFile = $('export-art') && $('export-art').files[0];
       if (fmt === 'wav' || fmt === 'flac') {
         let bytes = SF2ExportManager.bufferToWAVBytes(buf, bit, sr);
         if (meta.title || meta.artist || meta.album) bytes = SF2ExportManager.addWAVMetadata(bytes, meta);
+        if (artFile) {
+          try { const jpeg = await SF2ExportManager.imageToJpeg(artFile); bytes = SF2ExportManager.addWAVCoverArt(bytes, jpeg); }
+          catch (e) { this.toast('アルバムアート埋め込み失敗: ' + e.message); }
+        }
         SF2ExportManager.download(new Blob([bytes], { type: 'audio/wav' }), `${base}.wav`);
         if (fmt === 'flac') this.toast('FLAC未対応のためWAVで書き出しました');
       } else if (fmt === 'ogg') {
         await SF2ExportManager.exportOGG(buf, `${base}.ogg`);
+        if (artFile) this.toast('アルバムアートはWAV形式のみ埋め込めます');
       } else if (fmt === 'mp3') {
         await SF2ExportManager.exportWebM(buf, `${base}.webm`);
         this.toast('MP3未対応のためWebM(Opus)で書き出しました');
+        if (artFile) this.toast('アルバムアートはWAV形式のみ埋め込めます');
       }
       setProg(1, '完了');
       this._setStep('export');

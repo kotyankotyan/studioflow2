@@ -124,6 +124,54 @@ function addWAVMetadata(wavBytes, meta = {}) {
   return combined.buffer;
 }
 
+// Convert any image File/Blob (PNG/JPEG/WebP…) to a downscaled JPEG Uint8Array.
+async function imageToJpeg(file, maxSize = 800, quality = 0.85) {
+  const bmp = await createImageBitmap(file);
+  const scale = Math.min(1, maxSize / Math.max(bmp.width, bmp.height));
+  const w = Math.max(1, Math.round(bmp.width * scale)), h = Math.max(1, Math.round(bmp.height * scale));
+  const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+  cv.getContext('2d').drawImage(bmp, 0, 0, w, h);
+  const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', quality));
+  return new Uint8Array(await blob.arrayBuffer());
+}
+
+// Build an ID3v2.3 tag containing a front-cover APIC frame.
+function _id3WithCover(jpeg) {
+  const enc = new TextEncoder();
+  const mime = enc.encode('image/jpeg\0');
+  const head = new Uint8Array(1 + mime.length + 2); // encoding + mime\0 + picType + desc\0
+  head[0] = 0x00; head.set(mime, 1); head[1 + mime.length] = 0x03; head[2 + mime.length] = 0x00;
+  const frameData = new Uint8Array(head.length + jpeg.length);
+  frameData.set(head, 0); frameData.set(jpeg, head.length);
+  const fsize = frameData.length;
+  const frame = new Uint8Array(10 + fsize);
+  frame.set(enc.encode('APIC'), 0);
+  frame[4] = (fsize >>> 24) & 0xff; frame[5] = (fsize >>> 16) & 0xff; frame[6] = (fsize >>> 8) & 0xff; frame[7] = fsize & 0xff;
+  frame.set(frameData, 10);
+  const tagSize = frame.length;
+  const header = new Uint8Array(10);
+  header.set(enc.encode('ID3'), 0); header[3] = 3; header[4] = 0; header[5] = 0;
+  header[6] = (tagSize >>> 21) & 0x7f; header[7] = (tagSize >>> 14) & 0x7f; header[8] = (tagSize >>> 7) & 0x7f; header[9] = tagSize & 0x7f;
+  const tag = new Uint8Array(header.length + frame.length);
+  tag.set(header, 0); tag.set(frame, header.length);
+  return tag;
+}
+
+// Append album art to a WAV (as a RIFF "id3 " chunk holding an ID3v2 APIC).
+function addWAVCoverArt(wavBuf, jpeg) {
+  const wav = new Uint8Array(wavBuf);
+  const tag = _id3WithCover(jpeg);
+  const pad = tag.length % 2;
+  const chunk = new Uint8Array(8 + tag.length + pad);
+  chunk.set(new TextEncoder().encode('id3 '), 0);
+  new DataView(chunk.buffer).setUint32(4, tag.length, true);
+  chunk.set(tag, 8);
+  const out = new Uint8Array(wav.length + chunk.length);
+  out.set(wav, 0); out.set(chunk, wav.length);
+  new DataView(out.buffer).setUint32(4, out.length - 8, true); // fix RIFF size
+  return out.buffer;
+}
+
 function download(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -152,6 +200,8 @@ window.SF2ExportManager = {
   exportOGG,
   exportWebM,
   addWAVMetadata,
+  imageToJpeg,
+  addWAVCoverArt,
   encodeViaMediaRecorder,
   resampleBuffer,
   download,
