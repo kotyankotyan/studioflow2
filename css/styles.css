@@ -358,6 +358,9 @@ label { font-size: 12px; color: var(--text-dim); }
 .qbpm { background: var(--bg-tertiary); width: 44px; font-size: 12px; }
 .cr-btn { background: var(--accent-secondary); color: #fff; margin-top: 6px; }
 hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+.credits { font-size: 12px; color: var(--text-dim); }
+.credits a { color: var(--accent-secondary); }
+.credits code { background: var(--waveform-bg); padding: 1px 5px; border-radius: 4px; }
 
 /* ================= TOAST ================= */
 #sf2-toast {

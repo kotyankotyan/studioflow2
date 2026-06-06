@@ -1329,7 +1329,9 @@ class StudioFlowDAW2 {
       <button id="set-pw-save" class="action-btn">保存</button>
       <hr>
       <div class="prop-row"><label>原曲BPM</label><input type="number" id="set-obpm" value="${this.originalBpm}"></div>
-      <button id="set-clear" class="action-btn danger">プロジェクトを削除</button>`;
+      <button id="set-clear" class="action-btn danger">プロジェクトを削除</button>
+      <hr>
+      <p class="credits">MP3書き出しに <a href="https://github.com/zhuker/lamejs" target="_blank" rel="noopener">lamejs</a>（LGPL-3.0）を使用。クレジット: <code>js/vendor/THIRD-PARTY.txt</code></p>`;
     $('set-pw-save').onclick = async () => { await SF2Auth.setPassword($('set-pw').value); this.toast('パスワードを変更しました'); };
     $('set-obpm').onchange = e => { this.originalBpm = parseFloat(e.target.value); this.engine.setOriginalBPM(this.originalBpm); };
     $('set-clear').onclick = async () => { if (confirm('プロジェクトを削除しますか？')) { await SF2Storage.deleteProject('current'); location.reload(); } };

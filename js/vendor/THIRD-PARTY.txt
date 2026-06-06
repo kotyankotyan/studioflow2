@@ -1,0 +1,24 @@
+StudioFlow 2 — 第三者ソフトウェアのクレジット / Third-party credits
+=====================================================================
+
+このアプリは MP3 書き出しに以下のライブラリを使用しています。
+This application uses the following library for MP3 export:
+
+- lamejs (Pure JavaScript MP3 encoder)
+  - 著作権 / Copyright: The LAME project / zhuker and contributors
+  - サイト / Website: https://github.com/zhuker/lamejs
+                      https://lame.sourceforge.net
+  - ライセンス / License: GNU LGPL-3.0
+  - 同梱ファイル / Bundled as: js/vendor/lame.min.js (unmodified)
+  - ライセンス全文 / Full license text: js/vendor/LGPL-3.0.txt
+                                         js/vendor/lamejs.LICENSE.txt
+
+備考 / Notes:
+- lame.min.js は無改変で同梱しています（差し替え可能）。
+  The library is bundled unmodified and can be replaced.
+- 本アプリで書き出した音声ファイル（MP3 等）は利用者の著作物であり、
+  lamejs のライセンスは出力作品には及びません。
+  Audio files exported by this app are the user's own works; the
+  library license does not apply to the exported output.
+- MP3 関連特許はすべて失効済みです（〜2017年）。
+  All MP3-related patents have expired (by 2017).
