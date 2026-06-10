@@ -1028,7 +1028,7 @@ class StudioFlowDAW2 {
             <select id="pt-clip-len"><option value="15">15秒</option><option value="30" selected>30秒</option><option value="60">60秒</option></select>
             <button class="pt-btn" data-act="extract">再生位置から書き出し</button>
           </div>
-          <p class="empty-hint">プレイヘッド位置から指定秒数を切り出して書き出します（前後に自動フェード）。</p>
+          <p class="empty-hint">プレイヘッド位置から指定秒数を切り出して書き出します（前後に自動フェード＋試聴用に +1.5dB 自動ブースト・クリップ防止付き）。</p>
         </div>
         <div class="panel-section">
           <h4><i class="fas fa-gauge"></i> 計測</h4>
@@ -1505,10 +1505,20 @@ class StudioFlowDAW2 {
       for (let c = 0; c < full.numberOfChannels; c++) out.copyToChannel(full.getChannelData(c).slice(s0, s1), c);
       out = SF2ProTools.applyFade(out, 'in', 0.02, 'linear');
       out = SF2ProTools.applyFade(out, 'out', Math.min(0.5, sec * 0.1), 'exponential');
+      // 試聴ブースト: 試聴音源はフル音源より +1.5dB だけ大きく（購買時の印象向上、
+      // 業界で使われる手法）。やりすぎは「買ったら違う」になるので 1〜2dB に留め、
+      // クリップ防止に True Peak -1dBTP でリミット。
+      const PREVIEW_BOOST_DB = 1.5;
+      const g = Math.pow(10, PREVIEW_BOOST_DB / 20);
+      for (let c = 0; c < out.numberOfChannels; c++) {
+        const d = out.getChannelData(c);
+        for (let i = 0; i < d.length; i++) d[i] *= g;
+      }
+      out = SF2ProTools.applyTruePeakLimiter(out, -1);
       const base = (($('export-title') && $('export-title').value) || 'studioflow2').replace(/[^\w\-]+/g, '_');
       const bytes = SF2ExportManager.bufferToWAVBytes(out, 16, sr);
       SF2ExportManager.download(new Blob([bytes], { type: 'audio/wav' }), `${base}_clip${Math.round(sec)}s.wav`);
-      this.toast(`${Math.round(sec)}秒の短尺を書き出しました`);
+      this.toast(`${Math.round(sec)}秒の短尺を書き出しました（試聴用 +${PREVIEW_BOOST_DB}dB ブースト済み）`);
     } catch (e) { this.toast('切り抜き失敗: ' + e.message); }
   }
 
