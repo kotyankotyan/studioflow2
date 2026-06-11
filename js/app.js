@@ -183,6 +183,12 @@ class StudioFlowDAW2 {
     $('btn-pro-rew').onclick = () => this.seek(this.engine.currentTime - 10);
     $('btn-pro-fwd').onclick = () => this.seek(this.engine.currentTime + 10);
     $('btn-loop').onclick = () => this.toggleLoop();
+    $('btn-mono').onclick = () => {
+      const on = !this.engine._monoCheck;
+      this.engine.setMonoCheck(on);
+      $('btn-mono').classList.toggle('active', on);
+      this.toast(on ? 'モノラル確認 ON（書き出しには影響しません）' : 'モノラル確認 OFF');
+    };
     $('btn-zoom-in').onclick = () => this.setZoom(this.zoom * 1.3);
     $('btn-zoom-out').onclick = () => this.setZoom(this.zoom / 1.3);
     $('btn-undo').onclick = () => this.undo();
@@ -205,6 +211,7 @@ class StudioFlowDAW2 {
 
   play() {
     if (this.tracks.length === 0) { this.toast('先に楽曲を読み込んでください'); return; }
+    if (this._refActive) this._stopReference();   // never double with the reference
     this.engine.tracks = this.tracks;
     this.engine.play(this.tracks, this.engine.currentTime);
     this._syncPlayButtons(true);
@@ -220,6 +227,7 @@ class StudioFlowDAW2 {
   }
 
   stop() {
+    if (this._refActive) this._stopReference();
     this.engine.stop();
     this.engine._playOffset = 0;
     this._syncPlayButtons(false);
@@ -237,8 +245,23 @@ class StudioFlowDAW2 {
 
   toggleLoop() {
     const on = !this.engine._loopEnabled;
-    this.engine.setLoop(on, 0, this.projectDuration);
+    // 範囲選択中はその区間をループ（サビだけ繰り返して効果を確かめる用途）
+    let a = 0, b = this.projectDuration, ranged = false;
+    const s = this.selection;
+    if (s) {
+      const t = this.getTrack(s.trackId);
+      const c = t && t.clips.find(x => x.id === s.clipId);
+      if (c) {
+        const sr = c.buffer.sampleRate;
+        a = c.startTime + (s.s0 / sr - (c.offset || 0));
+        b = c.startTime + (s.s1 / sr - (c.offset || 0));
+        ranged = b - a > 0.1;
+        if (!ranged) { a = 0; b = this.projectDuration; }
+      }
+    }
+    this.engine.setLoop(on, a, b);
     $('btn-loop').classList.toggle('active', on);
+    if (on) this.toast(ranged ? `選択範囲をループ（${a.toFixed(1)}〜${b.toFixed(1)}秒）` : '全体をループ');
   }
 
   _restartFromLoop(start) {
@@ -722,6 +745,7 @@ class StudioFlowDAW2 {
       <canvas id="mixer-spectrum" width="320" height="120"></canvas>
       <div class="lufs-display">LUFS <span id="mixer-lufs">--</span></div>
       <div class="phase-meter">位相 <span id="mixer-phase">--</span></div>
+      <div class="gr-display" title="ゲインリダクション（コンプ/リミッターがどれだけ音を潰しているか）">GR <span id="gr-comp">0.0</span> / <span id="gr-limit">0.0</span> dB</div>
       <input type="range" class="strip-fader" id="master-fader" min="0" max="1.5" step="0.01" value="${this.engine.masterGain.gain.value}">`;
     master.querySelector('#master-fader').oninput = e => this.engine.setMasterVolume(parseFloat(e.target.value));
 
@@ -759,6 +783,16 @@ class StudioFlowDAW2 {
         <div class="prop-row"><label>Ratio</label><input type="range" id="mst-ratio" min="1" max="20" step="0.5" value="3"></div>
         <div class="prop-row"><label>Ceiling</label><input type="range" id="mst-ceil" min="-3" max="0" step="0.1" value="-0.3"></div>
         <div class="prop-row"><label>幅 %</label><input type="range" id="mst-width" min="0" max="200" step="5" value="100"></div>
+      </div>
+      <div class="panel-section">
+        <h4><i class="fas fa-scale-balanced"></i> リファレンス比較（お手本曲とA/B）</h4>
+        <div class="ref-row">
+          <button id="ref-load" class="action-btn"><i class="fas fa-file-audio"></i> お手本を読み込む</button>
+          <button id="ref-toggle" class="action-btn" disabled><i class="fas fa-right-left"></i> A/B切替</button>
+          <span id="ref-status" class="empty-hint">未読み込み</span>
+        </div>
+        <input type="file" id="ref-file" accept="audio/*" hidden>
+        <p class="empty-hint">市販曲などを読み込むと音量（LUFS）を自動で揃えて比較できます。「大きい方が良く聴こえる」バイアスなしで判断できます。</p>
       </div>`;
     pane.querySelectorAll('.preset-chip').forEach(c => c.onclick = () => {
       this.mastering.applyPreset(c.dataset.preset);
@@ -774,6 +808,69 @@ class StudioFlowDAW2 {
     $('mst-ratio').oninput = e => { this.mastering.setCompressor({ ...this.mastering.state.comp, ratio: parseFloat(e.target.value) }); this.applyMastering(); };
     $('mst-ceil').oninput = e => { this.mastering.setLimiter({ ...this.mastering.state.limiter, ceiling: parseFloat(e.target.value) }); this.applyMastering(); };
     $('mst-width').oninput = e => { this.mastering.setStereoWidth(parseFloat(e.target.value) / 100); this.applyMastering(); };
+    $('ref-load').onclick = () => { $('ref-file').value = ''; $('ref-file').click(); };
+    $('ref-file').onchange = e => { if (e.target.files[0]) this.loadReference(e.target.files[0]); };
+    $('ref-toggle').onclick = () => this.toggleReference();
+  }
+
+  // ---------- reference A/B (loudness-matched) ----------
+  async loadReference(file) {
+    try {
+      this.toast('お手本を解析中...');
+      const buf = await this.engine.ctx.decodeAudioData(await file.arrayBuffer());
+      await this._analyzeReference(buf, file.name);
+    } catch (e) { this.toast('お手本の読み込み失敗: ' + e.message); }
+  }
+
+  async _analyzeReference(buf, name = 'reference') {
+    this.refBuffer = buf;
+    this.refName = name;
+    const refLUFS = SF2ProTools.measureLUFS(buf);
+    let projLUFS = refLUFS;        // fallback: unity gain if no project
+    if (this.tracks.length > 0) {
+      const mix = await this.engine.renderOffline(this.tracks, this.projectDuration, 44100);
+      projLUFS = SF2ProTools.measureLUFS(mix);
+    }
+    // play the reference at the project's loudness (clamped ±12dB for safety)
+    this._refGainDb = Math.max(-12, Math.min(12, projLUFS - refLUFS));
+    const st = $('ref-status');
+    if (st) st.textContent = `${name}（音量差 ${this._refGainDb >= 0 ? '+' : ''}${this._refGainDb.toFixed(1)}dB を自動補正）`;
+    const tg = $('ref-toggle'); if (tg) tg.disabled = false;
+    this.toast('お手本を読み込みました。A/B切替で比較できます');
+  }
+
+  toggleReference() {
+    if (!this.refBuffer) { this.toast('先にお手本曲を読み込んでください'); return; }
+    const ctx = this.engine.ctx;
+    if (!this._refActive) {
+      const pos = this.engine.currentTime;
+      if (this.engine._isPlaying) { this.engine.stop(); this._syncPlayButtons(false); }
+      this.engine._playOffset = pos;
+      const src = ctx.createBufferSource();
+      src.buffer = this.refBuffer;
+      const g = ctx.createGain();
+      g.gain.value = Math.pow(10, (this._refGainDb || 0) / 20);
+      src.connect(g); g.connect(ctx.destination);
+      src.start(0, Math.min(pos, Math.max(0, this.refBuffer.duration - 0.1)));
+      this._refSrc = src; this._refGainNode = g;
+      this._refStartCtx = ctx.currentTime; this._refStartPos = pos;
+      this._refActive = true;
+      const tg = $('ref-toggle'); if (tg) tg.classList.add('active');
+      this.toast('🅱 お手本を再生中（音量補正済み）');
+    } else {
+      this._stopReference();
+      // resume the project where the reference left off (within bounds)
+      const adv = this._refStartPos + (ctx.currentTime - this._refStartCtx);
+      this.engine._playOffset = Math.min(adv, Math.max(0, this.projectDuration - 0.05));
+      this.play();
+      this.toast('🅰 自分のミックスに戻りました');
+    }
+  }
+
+  _stopReference() {
+    if (this._refSrc) { try { this._refSrc.stop(); } catch (e) {} try { this._refSrc.disconnect(); this._refGainNode.disconnect(); } catch (e) {} }
+    this._refSrc = null; this._refActive = false;
+    const tg = $('ref-toggle'); if (tg) tg.classList.remove('active');
   }
 
   // マスタリング状態(this.mastering.state)を、実際に音が通るエンジンのマスター系へ反映。
@@ -1615,6 +1712,19 @@ class StudioFlowDAW2 {
           if (lufsEl) lufsEl.textContent = `${(dbfs - 0.69).toFixed(1)}`;
           const phaseEl = $('mixer-phase');
           if (phaseEl) phaseEl.textContent = rms > 1e-4 ? '+1.0' : '0.0';
+
+          // gain-reduction meters (negative dB; how hard comp/limiter work)
+          const grC = $('gr-comp'), grL = $('gr-limit');
+          if (grC && this.engine.masterCompressor) {
+            const r = this.engine.masterCompressor.reduction;
+            grC.textContent = r.toFixed(1);
+            grC.style.color = r < -6 ? 'var(--accent)' : r < -2 ? 'var(--accent-yellow)' : 'var(--accent-green)';
+          }
+          if (grL && this.engine.masterLimiter) {
+            const r = this.engine.masterLimiter.reduction;
+            grL.textContent = r.toFixed(1);
+            grL.style.color = r < -3 ? 'var(--accent)' : r < -1 ? 'var(--accent-yellow)' : 'var(--accent-green)';
+          }
         }
 
         // VU bars

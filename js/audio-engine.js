@@ -357,6 +357,17 @@ class AudioEngine {
     return result;
   }
 
+  // Mono compatibility check: force the master bus to downmix to mono
+  // (channelCount=1 explicit sums L+R per the Web Audio spec). Listening aid
+  // only — exports are unaffected.
+  setMonoCheck(on) {
+    const g = this.masterGain;
+    if (!g) return;
+    if (on) { g.channelCountMode = 'explicit'; g.channelCount = 1; }
+    else { g.channelCountMode = 'max'; g.channelCount = 2; }
+    this._monoCheck = !!on;
+  }
+
   setStereoWidth(w) { this._stereoWidth = w; }
   setBPM(bpm) { this._bpm = bpm; }
   setOriginalBPM(bpm) { this._originalBpm = bpm; }

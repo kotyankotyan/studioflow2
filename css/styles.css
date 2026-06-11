@@ -295,8 +295,11 @@ label { font-size: 12px; color: var(--text-dim); }
 .ms-btn { width: 24px; height: 22px; font-size: 11px; padding: 0; }
 .ms-btn.on.mute { background: var(--accent); color: #fff; }
 .ms-btn.on.solo { background: var(--accent-yellow); color: #000; }
-.lufs-display, .phase-meter { font-size: 12px; color: var(--text-dim); }
-.lufs-display span, .phase-meter span { color: var(--accent-green); font-weight: 600; }
+.lufs-display, .phase-meter, .gr-display { font-size: 12px; color: var(--text-dim); }
+.lufs-display span, .phase-meter span, .gr-display span { color: var(--accent-green); font-weight: 600; }
+.ref-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+#ref-toggle.active { background: var(--accent-yellow); color: #000; }
+#btn-mono.active { background: var(--accent-purple); color: #fff; }
 #mixer-spectrum { width: 100%; max-width: 320px; height: 90px; display: block; background: var(--waveform-bg); border-radius: 6px; }
 #master-fader { writing-mode: horizontal-tb; direction: ltr; width: 90%; height: auto; }
 
