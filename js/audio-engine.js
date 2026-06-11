@@ -188,7 +188,7 @@ class AudioEngine {
 
         if (dur <= 0) continue;
         src.start(when, intraOffset, dur);
-        sources.push({ src, clipGain });
+        sources.push({ src, clipGain, clipId: clip.id });
       }
       if (sources.length > 0) this._activeSources.set(track.id, sources);
     }

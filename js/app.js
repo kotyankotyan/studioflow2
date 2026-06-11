@@ -443,6 +443,24 @@ class StudioFlowDAW2 {
       const localT = (e.clientX - rect.left) / this.pxPerSec;
       if (this.tool === 'cut') { this.cutClip(track.id, clip.id, clip.startTime + localT); return; }
       this.selectedTrackId = track.id; this.selectedClipId = clip.id;
+      if (this.tool === 'move') {
+        // drag the clip along the timeline
+        this._pushUndo();
+        const startX = e.clientX, origStart = clip.startTime;
+        const move = ev => {
+          clip.startTime = Math.max(0, origStart + (ev.clientX - startX) / this.pxPerSec);
+          el.style.left = (clip.startTime * this.pxPerSec) + 'px';
+        };
+        const up = () => {
+          document.removeEventListener('mousemove', move);
+          document.removeEventListener('mouseup', up);
+          this._renderTracks(); this._renderPropertiesPanel(); this._saveProject();
+          this._refreshPlaybackIfActive();
+        };
+        document.addEventListener('mousemove', move);
+        document.addEventListener('mouseup', up);
+        return;
+      }
       const startT = Math.max(0, Math.min(clip.duration, localT));
       let moved = false;
       const move = ev => {
@@ -520,6 +538,8 @@ class StudioFlowDAW2 {
     if (!confirm(`「${t.name}」を削除しますか？（元に戻すは Ctrl+Z）`)) return;
     this._pushUndo();
     this.engine.disconnectTrackNodes(t.nodes);
+    // free the persisted audio for this track (storage hygiene)
+    for (const c of t.clips) SF2Storage.deleteBuffer(c._bufKey || `current/${t.id}/${c.id}`).catch(() => {});
     this.tracks = this.tracks.filter(x => x.id !== id);
     this.originalBuffers.delete(id);
     if (this.selectedTrackId === id) { this.selectedTrackId = null; this.selectedClipId = null; }
@@ -535,7 +555,13 @@ class StudioFlowDAW2 {
     const track = this.getTrack(this.selectedTrackId);
     if (!track) return;
     this._pushUndo();
+    const victim = track.clips.find(c => c.id === this.selectedClipId);
     track.clips = track.clips.filter(c => c.id !== this.selectedClipId);
+    // free its stored audio unless a sibling (cut twin) still shares the buffer
+    if (victim) {
+      const shared = this.tracks.some(t => t.clips.some(c => c.buffer === victim.buffer));
+      if (!shared) SF2Storage.deleteBuffer(victim._bufKey || `current/${track.id}/${victim.id}`).catch(() => {});
+    }
     this.selectedClipId = null;
     this._refreshAll();
     this._saveProject();
@@ -545,7 +571,15 @@ class StudioFlowDAW2 {
     const clip = this.getClip(trackId, clipId);
     if (!clip) return;
     clip._gain = gain;
-    this._refreshPlaybackIfActive();
+    // Live-update the playing source's gain node directly — no restart, no stutter.
+    if (this.engine._isPlaying) {
+      for (const sources of this.engine._activeSources.values()) {
+        for (const s of sources) {
+          if (s.clipId === clipId) s.clipGain.gain.setTargetAtTime(gain, 0, 0.02);
+        }
+      }
+    }
+    this._saveSoon();
   }
 
   // ---------- track controls ----------
@@ -1865,6 +1899,7 @@ class StudioFlowDAW2 {
         mastering: this.mastering ? this.mastering.serialize() : null,
         tracks: [],
       };
+      const bufKeys = new Map();   // AudioBuffer -> stored key (dedupe within this save)
       for (const t of this.tracks) {
         const trackMeta = {
           id: t.id, name: t.name, part: t.part, color: t.color,
@@ -1874,8 +1909,14 @@ class StudioFlowDAW2 {
           clips: [],
         };
         for (const c of t.clips) {
-          const bufKey = `current/${t.id}/${c.id}`;
-          if (!c._saved) { await SF2Storage.saveBuffer(bufKey, c.buffer); c._saved = true; }
+          // dedupe: cut-split clips share one AudioBuffer — store it only once
+          let bufKey = bufKeys.get(c.buffer);
+          if (!bufKey) {
+            bufKey = c._saved && c._bufKey ? c._bufKey : `current/${t.id}/${c.id}`;
+            if (!c._saved) { await SF2Storage.saveBuffer(bufKey, c.buffer); }
+            bufKeys.set(c.buffer, bufKey);
+          }
+          c._saved = true; c._bufKey = bufKey;
           trackMeta.clips.push({ id: c.id, name: c.name, bufKey, startTime: c.startTime, duration: c.duration, offset: c.offset, _gain: c._gain });
         }
         meta.tracks.push(trackMeta);
@@ -1895,6 +1936,7 @@ class StudioFlowDAW2 {
         this.applyMastering();
         this._syncMasteringPanel();
       }
+      const bufCache = new Map();   // bufKey -> AudioBuffer (share cut twins)
       for (const tm of meta.tracks) {
         const track = { ...tm, nodes: null, clips: [] };
         track.reverb = tm.reverb ?? 0;
@@ -1905,9 +1947,10 @@ class StudioFlowDAW2 {
         track.nodes.reverbWet.gain.value = track.reverb;
         track.nodes.reverbDry.gain.value = 1 - track.reverb * 0.5;
         for (const cm of tm.clips) {
-          const buf = await SF2Storage.loadBuffer(cm.bufKey, this.engine.ctx);
+          let buf = bufCache.get(cm.bufKey);
+          if (!buf) { buf = await SF2Storage.loadBuffer(cm.bufKey, this.engine.ctx); if (buf) bufCache.set(cm.bufKey, buf); }
           if (!buf) continue;
-          track.clips.push({ id: cm.id, name: cm.name, buffer: buf, startTime: cm.startTime, duration: cm.duration, offset: cm.offset, _gain: cm._gain, _saved: true });
+          track.clips.push({ id: cm.id, name: cm.name, buffer: buf, startTime: cm.startTime, duration: cm.duration, offset: cm.offset, _gain: cm._gain, _saved: true, _bufKey: cm.bufKey });
           if (!this.originalBuffers.has(track.id)) this.originalBuffers.set(track.id, buf);
         }
         this.tracks.push(track);

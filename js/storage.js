@@ -66,6 +66,16 @@ async function deleteProject(id) {
   });
 }
 
+async function deleteBuffer(key) {
+  const d = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = d.transaction('buffers', 'readwrite');
+    tx.objectStore('buffers').delete(key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = e => reject(e.target.error);
+  });
+}
+
 async function saveBuffer(key, audioBuffer, ctx) {
   const d = await openDB();
   // Serialize AudioBuffer to interleaved Float32Array
@@ -102,4 +112,4 @@ async function loadBuffer(key, ctx) {
   });
 }
 
-window.SF2Storage = { saveProject, loadProject, listProjects, deleteProject, saveBuffer, loadBuffer };
+window.SF2Storage = { saveProject, loadProject, listProjects, deleteProject, saveBuffer, loadBuffer, deleteBuffer };
