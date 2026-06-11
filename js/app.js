@@ -316,7 +316,14 @@ class StudioFlowDAW2 {
     this._renderTracks();
   }
 
+  // Debounced project save (for high-frequency edits like slider/curve drags).
+  _saveSoon() {
+    clearTimeout(this._saveTimer);
+    this._saveTimer = setTimeout(() => this._saveProject(), 800);
+  }
+
   _onTimeUpdate(t) {
+    if (this.engine._isPlaying) this._applyAutomationAt(t);
     const ts = StudioFlowDAW2.fmtTime(t);
     $('current-time').textContent = ts;
     $('total-time').textContent = StudioFlowDAW2.fmtTime(this.projectDuration);
@@ -889,6 +896,7 @@ class StudioFlowDAW2 {
     if (e.masterLimiter) e.masterLimiter.threshold.setTargetAtTime(st.limiter.ceiling ?? -0.3, 0, 0.01);
     e.setMasterVolume(Math.pow(10, (st.limiter.gain ?? 0) / 20));
     e.setStereoWidth(st.stereoWidth ?? 1);
+    this._saveSoon();    // persist mastering tweaks (debounced)
   }
 
   // プリセット適用後にスライダー表示を状態へ同期
@@ -967,25 +975,31 @@ class StudioFlowDAW2 {
         <canvas id="auto-canvas" width="600" height="140"></canvas>
         <p class="empty-hint">クリックで点を追加・ドラッグで移動 / 点を右クリックで削除 / 「全消去」で書き直し</p>
       </div>`;
-    this._automation = this._automation || new SF2Automation.AutomationLane(this.selectedTrackId, 'volume');
     const canvas = $('auto-canvas');
-    const PPS = 20; // px per second on the automation canvas
+    // lanes live ON the selected track (per param) so they persist and are
+    // actually applied during playback and export.
+    const laneOf = () => {
+      const t = this.getTrack(this.selectedTrackId) || this.tracks[0];
+      if (!t) return null;
+      t.automation = t.automation || {};
+      const p = $('auto-param').value;
+      if (!t.automation[p]) t.automation[p] = { points: [] };
+      return t.automation[p];
+    };
+    // scale so the whole song fits on the canvas
+    const pps = () => Math.max(2, Math.min(20, canvas.width / Math.max(30, this.projectDuration)));
 
     const toData = e => {
       const rect = canvas.getBoundingClientRect();
       const sx = canvas.width / rect.width, sy = canvas.height / rect.height;
       const cx = (e.clientX - rect.left) * sx, cy = (e.clientY - rect.top) * sy;
-      return {
-        time: Math.max(0, cx / PPS),
-        value: Math.max(0, Math.min(1, 1 - cy / canvas.height)),
-        cx, cy,
-      };
+      return { time: Math.max(0, cx / pps()), value: Math.max(0, Math.min(1, 1 - cy / canvas.height)), cx, cy };
     };
     const nearestIndex = (cx, cy) => {
-      const pts = this._automation.points;
-      let best = -1, bestD = 12; // px threshold
-      pts.forEach((p, i) => {
-        const x = p.time * PPS, y = canvas.height - p.value * canvas.height;
+      const lane = laneOf(); if (!lane) return -1;
+      let best = -1, bestD = 12;
+      lane.points.forEach((p, i) => {
+        const x = p.time * pps(), y = canvas.height - p.value * canvas.height;
         const d = Math.hypot(x - cx, y - cy);
         if (d < bestD) { bestD = d; best = i; }
       });
@@ -997,45 +1011,94 @@ class StudioFlowDAW2 {
       ctx.fillStyle = '#0d1b2a'; ctx.fillRect(0, 0, W, H);
       ctx.strokeStyle = '#ffffff11'; ctx.lineWidth = 1;
       [0.25, 0.5, 0.75].forEach(f => { ctx.beginPath(); ctx.moveTo(0, H * f); ctx.lineTo(W, H * f); ctx.stroke(); });
-      const pts = this._automation.points || [];
+      const lane = laneOf();
+      const pts = (lane && lane.points) || [];
       if (pts.length) {
         ctx.strokeStyle = '#0ea5e9'; ctx.lineWidth = 2; ctx.beginPath();
-        pts.forEach((p, i) => { const x = p.time * PPS, y = H - p.value * H; i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y); });
+        pts.forEach((p, i) => { const x = p.time * pps(), y = H - p.value * H; i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y); });
         ctx.stroke();
         ctx.fillStyle = '#e94560';
-        pts.forEach(p => { const x = p.time * PPS, y = H - p.value * H; ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI * 2); ctx.fill(); });
+        pts.forEach(p => { const x = p.time * pps(), y = H - p.value * H; ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI * 2); ctx.fill(); });
       }
     };
+    this._redrawAutomation = redraw;
 
     let dragIdx = -1;
     canvas.onmousedown = e => {
+      const lane = laneOf(); if (!lane) { this.toast('先に曲を読み込んでください'); return; }
       const d = toData(e);
       let idx = nearestIndex(d.cx, d.cy);
-      if (idx < 0) { this._automation.addPoint(d.time, d.value); idx = this._automation.points.findIndex(p => Math.abs(p.time - d.time) < 0.011); }
+      if (idx < 0) {
+        this._pushUndo();
+        lane.points.push({ time: d.time, value: d.value });
+        lane.points.sort((a, b) => a.time - b.time);
+        idx = lane.points.findIndex(p => Math.abs(p.time - d.time) < 0.011);
+      }
       dragIdx = idx;
       redraw();
     };
     canvas.onmousemove = e => {
       if (dragIdx < 0) return;
+      const lane = laneOf(); if (!lane) return;
       const d = toData(e);
-      const p = this._automation.points[dragIdx];
+      const p = lane.points[dragIdx];
       if (p) { p.time = d.time; p.value = d.value; }
       redraw();
     };
     const endDrag = () => {
-      if (dragIdx >= 0) { this._automation.points.sort((a, b) => a.time - b.time); dragIdx = -1; redraw(); }
+      const lane = laneOf();
+      if (dragIdx >= 0 && lane) { lane.points.sort((a, b) => a.time - b.time); dragIdx = -1; redraw(); this._saveSoon(); }
     };
     canvas.onmouseup = endDrag;
     canvas.onmouseleave = endDrag;
     canvas.oncontextmenu = e => {
       e.preventDefault();
+      const lane = laneOf(); if (!lane) return;
       const d = toData(e);
       const idx = nearestIndex(d.cx, d.cy);
-      if (idx >= 0) { this._automation.points.splice(idx, 1); redraw(); this.toast('点を削除しました'); }
+      if (idx >= 0) { this._pushUndo(); lane.points.splice(idx, 1); redraw(); this._saveSoon(); this.toast('点を削除しました'); }
     };
-    $('auto-clear').onclick = () => { this._automation.points = []; redraw(); this.toast('オートメーションを消去しました'); };
-    $('auto-param').onchange = e => { this._automation = new SF2Automation.AutomationLane(this.selectedTrackId, e.target.value); redraw(); };
+    $('auto-clear').onclick = () => {
+      const lane = laneOf(); if (!lane) return;
+      this._pushUndo(); lane.points.length = 0; redraw(); this._saveSoon();
+      this.toast('オートメーションを消去しました');
+    };
+    $('auto-param').onchange = () => redraw();
     redraw();
+  }
+
+  // value 0..1 from a lane at `time` (linear interpolation), or null if empty
+  _laneValue(lane, time) {
+    if (!lane || !lane.points || lane.points.length === 0) return null;
+    const pts = lane.points;
+    if (time <= pts[0].time) return pts[0].value;
+    const last = pts[pts.length - 1];
+    if (time >= last.time) return last.value;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i], b = pts[i + 1];
+      if (time >= a.time && time <= b.time) {
+        const f = (time - a.time) / (b.time - a.time);
+        return a.value + (b.value - a.value) * f;
+      }
+    }
+    return last.value;
+  }
+
+  // Drive live params from automation lanes (called every playback tick).
+  _applyAutomationAt(time) {
+    for (const t of this.tracks) {
+      const a = t.automation, n = t.nodes;
+      if (!a || !n) continue;
+      let v;
+      if ((v = this._laneValue(a.volume, time)) != null) n.gainNode.gain.setTargetAtTime(v * 1.5, 0, 0.03);
+      if ((v = this._laneValue(a.pan, time)) != null) n.panNode.pan.setTargetAtTime(v * 2 - 1, 0, 0.03);
+      if ((v = this._laneValue(a.eq, time)) != null) n.eqMid.gain.setTargetAtTime(v * 24 - 12, 0, 0.03);
+      if ((v = this._laneValue(a.reverb, time)) != null) {
+        n.reverbWet.gain.setTargetAtTime(v, 0, 0.03);
+        n.reverbDry.gain.setTargetAtTime(1 - v * 0.5, 0, 0.03);
+      }
+      if ((v = this._laneValue(a.filter, time)) != null && n.sweepFilter) n.sweepFilter.frequency.setTargetAtTime(200 * Math.pow(100, v), 0, 0.03);
+    }
   }
 
   // ---------- remix panel ----------
@@ -1185,8 +1248,8 @@ class StudioFlowDAW2 {
       switch (act) {
         case 'trim': this._pushUndo(); this._replaceClipBuffer(clip, P.trimSilence(clip.buffer, 3)); break;
         case 'suno': this.mastering.setEQ({ low: 1, lowMid: -3, mid: -1, highMid: -2, high: 1.5 }); this.applyMastering(); this._syncMasteringPanel(); this.toast('Suno EQ適用（マスターに反映）'); return;
-        case 'sweep': this._addFxClip('sweep'); this.toast('スウィープ追加'); return;
-        case 'buildup': this._addFxClip('buildup'); this.toast('ビルドアップ追加'); return;
+        case 'sweep': this._addFxClip('sweep'); return;
+        case 'buildup': this._addFxClip('buildup'); return;
         case 'split': this._pushUndo(); this._autoSplit(clip, parseInt($('pt-split').value, 10)); break;
         case 'measure': {
           const lufs = P.measureLUFS(clip.buffer).toFixed(1);
@@ -1216,11 +1279,46 @@ class StudioFlowDAW2 {
     }
   }
 
-  _addFxClip(type) {
+  // Synthesize a noise sweep-up (filtered noise, 200Hz -> 8kHz) for pre-chorus FX.
+  async _makeSweepBuffer(duration = 2) {
+    const sr = this.engine.ctx.sampleRate;
+    const off = new OfflineAudioContext(2, Math.floor(sr * duration), sr);
+    const nb = off.createBuffer(2, Math.floor(sr * duration), sr);
+    for (let c = 0; c < 2; c++) { const d = nb.getChannelData(c); for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * 0.6; }
+    const src = off.createBufferSource(); src.buffer = nb;
+    const f = off.createBiquadFilter(); f.type = 'highpass'; f.Q.value = 1;
+    f.frequency.setValueAtTime(300, 0);
+    f.frequency.exponentialRampToValueAtTime(6000, duration);
+    const g = off.createGain();
+    g.gain.setValueAtTime(0.02, 0);
+    g.gain.exponentialRampToValueAtTime(0.55, duration * 0.92);
+    g.gain.linearRampToValueAtTime(0.0001, duration);
+    src.connect(f); f.connect(g); g.connect(off.destination); src.start(0);
+    return off.startRendering();
+  }
+
+  // 盛り上げFX: synthesize real audio and place it as a normal clip ENDING at
+  // the playhead (it builds INTO the drop). Plays, exports, moves, deletes and
+  // undoes like any other clip — no separate fx lane needed.
+  async _addFxClip(type) {
     const track = this.getTrack(this.selectedTrackId) || this.tracks[0];
-    if (!track) return;
-    track.fxClips = track.fxClips || [];
-    track.fxClips.push({ id: this._nextId('fx'), type, startTime: this.engine.currentTime, duration: 2 });
+    if (!track) { this.toast('先に曲を読み込んでください'); return; }
+    const dur = 2;
+    this.toast('FXを生成中...');
+    try {
+      const buf = type === 'sweep'
+        ? await this._makeSweepBuffer(dur)
+        : SF2Effects.createRiserBuffer(this.engine.ctx, dur, this.engine.ctx.sampleRate);
+      this._pushUndo();
+      const start = Math.max(0, this.engine.currentTime - dur);
+      track.clips.push({
+        id: this._nextId('clip'),
+        name: type === 'sweep' ? 'スウィープ' : 'ビルドアップ',
+        buffer: buf, startTime: start, duration: buf.duration, offset: 0, _gain: 0.9, _saved: false,
+      });
+      this._refreshAll(); this._saveProject(); this._refreshPlaybackIfActive();
+      this.toast(`${type === 'sweep' ? 'スウィープ' : 'ビルドアップ'}を ${start.toFixed(1)}秒 に配置しました（再生位置に向かって盛り上がります）`);
+    } catch (e) { this.toast('FX生成失敗: ' + e.message); }
   }
 
   // ---------- easy mode ----------
@@ -1632,6 +1730,7 @@ class StudioFlowDAW2 {
           mid: t.nodes?.eqMid?.gain?.value ?? 0,
           high: t.nodes?.eqHigh?.gain?.value ?? 0,
         },
+        automation: JSON.parse(JSON.stringify(t.automation || {})),
         clips: t.clips.map(c => ({ ...c })),       // buffers are shared by reference
         fxClips: (t.fxClips || []).map(f => ({ ...f })),
       })),
@@ -1763,12 +1862,14 @@ class StudioFlowDAW2 {
       const meta = {
         id: 'current',
         bpm: this.bpm, originalBpm: this.originalBpm, key: this.key,
+        mastering: this.mastering ? this.mastering.serialize() : null,
         tracks: [],
       };
       for (const t of this.tracks) {
         const trackMeta = {
           id: t.id, name: t.name, part: t.part, color: t.color,
           volume: t.volume, pan: t.pan, muted: t.muted, solo: t.solo, reverb: t.reverb ?? 0,
+          automation: t.automation || {},
           fxClips: t.fxClips || [],
           clips: [],
         };
@@ -1789,9 +1890,15 @@ class StudioFlowDAW2 {
       if (!meta || !meta.tracks || meta.tracks.length === 0) return;
       this.bpm = meta.bpm || 120; this.originalBpm = meta.originalBpm || 120; this.key = meta.key || '--';
       this.engine.setBPM(this.bpm); this.engine.setOriginalBPM(this.originalBpm);
+      if (meta.mastering) {
+        this.mastering.restore(meta.mastering);
+        this.applyMastering();
+        this._syncMasteringPanel();
+      }
       for (const tm of meta.tracks) {
         const track = { ...tm, nodes: null, clips: [] };
         track.reverb = tm.reverb ?? 0;
+        track.automation = tm.automation || {};
         track.nodes = this.engine.createTrackNodes(track);
         track.nodes.gainNode.gain.value = track.volume;
         track.nodes.panNode.pan.value = track.pan;

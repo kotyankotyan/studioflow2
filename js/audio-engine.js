@@ -321,6 +321,23 @@ class AudioEngine {
       reverbMix.connect(sweep);
       sweep.connect(masterIn);
 
+      // Apply automation lanes (drawn in the automation panel) to the offline
+      // params so curves are baked into the export, mirroring live playback.
+      const auto = track.automation;
+      const schedule = (param, lane, map) => {
+        if (!lane || !lane.points || lane.points.length === 0) return;
+        const pts = lane.points;
+        param.setValueAtTime(map(pts[0].value), 0);
+        for (const p of pts) param.linearRampToValueAtTime(map(p.value), Math.max(0, p.time / bpmRatio));
+      };
+      if (auto) {
+        schedule(gainNode.gain, auto.volume, v => v * 1.5);
+        schedule(panNode.pan, auto.pan, v => v * 2 - 1);
+        schedule(eqMid.gain, auto.eq, v => v * 24 - 12);
+        schedule(reverbWet.gain, auto.reverb, v => v);
+        schedule(sweep.frequency, auto.filter, v => 200 * Math.pow(100, v));
+      }
+
       for (const clip of track.clips) {
         const src = offCtx.createBufferSource();
         src.buffer = clip.buffer;
