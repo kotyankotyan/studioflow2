@@ -415,6 +415,43 @@ async function enhanceVocal(buffer) {
   return ctx.startRendering();
 }
 
+// Drum enhancement for a separated drum stem. Boosts kick (60-90Hz) and snare
+// (body 150-250Hz + crack 2-5kHz) with peaking EQ, and adds punch via a parallel
+// fast compressor blended back in (transient emphasis). All amounts 0..1.
+//   kick:   0..1  -> up to +6 dB @ ~75Hz
+//   snare:  0..1  -> up to +5 dB @ 200Hz and +5 dB @ 3.5kHz
+//   attack: 0..1  -> parallel-compressed punch blend (0 = none)
+async function enhanceDrums(buffer, opts = {}) {
+  const kick = Math.max(0, Math.min(1, opts.kick ?? 0.35));
+  const snare = Math.max(0, Math.min(1, opts.snare ?? 0.35));
+  const attack = Math.max(0, Math.min(1, opts.attack ?? 0.3));
+  const ctx = new OfflineAudioContext(buffer.numberOfChannels, buffer.length, buffer.sampleRate);
+
+  // --- main (EQ) path ---
+  const src = ctx.createBufferSource(); src.buffer = buffer;
+  const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 30; hp.Q.value = 0.7; // clean sub rumble
+  const kickEq = ctx.createBiquadFilter(); kickEq.type = 'peaking'; kickEq.frequency.value = 75; kickEq.Q.value = 1.1; kickEq.gain.value = kick * 5.3;     // up to ~+6dB at center (filter shape adds a touch)
+  const snBody = ctx.createBiquadFilter(); snBody.type = 'peaking'; snBody.frequency.value = 200; snBody.Q.value = 1.0; snBody.gain.value = snare * 5;     // up to +5dB
+  const snCrack = ctx.createBiquadFilter(); snCrack.type = 'peaking'; snCrack.frequency.value = 3500; snCrack.Q.value = 0.9; snCrack.gain.value = snare * 5; // up to +5dB
+  src.connect(hp); hp.connect(kickEq); kickEq.connect(snBody); snBody.connect(snCrack);
+
+  const dry = ctx.createGain(); dry.gain.value = 1;
+  snCrack.connect(dry); dry.connect(ctx.destination);
+
+  // --- parallel punch path (fast compressor on a second source) ---
+  if (attack > 0.001) {
+    const src2 = ctx.createBufferSource(); src2.buffer = buffer;
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -28; comp.knee.value = 4; comp.ratio.value = 8;
+    comp.attack.value = 0.002; comp.release.value = 0.12;
+    const wet = ctx.createGain(); wet.gain.value = attack * 0.6;   // blend amount (parallel)
+    src2.connect(comp); comp.connect(wet); wet.connect(ctx.destination);
+    src2.start(0);
+  }
+  src.start(0);
+  return ctx.startRendering();
+}
+
 // Krumhansl-Schmuckler key detection
 function detectKey(buffer) {
   const data = buffer.getChannelData(0);
@@ -478,5 +515,6 @@ window.SF2ProTools = {
   detectBPM,
   detectKey,
   enhanceVocal,
+  enhanceDrums,
   timeStretch,
 };
