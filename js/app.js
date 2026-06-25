@@ -401,6 +401,16 @@ class StudioFlowDAW2 {
       row.appendChild(lane);
       cont.appendChild(row);
     }
+    this._sizePlayhead();
+  }
+
+  // Make the playhead span the full track region: the larger of the visible
+  // viewport and the total track content (so it also covers scrolled-in tracks).
+  _sizePlayhead() {
+    const ph = $('playhead'), ta = $('track-area'), tc = $('tracks-container');
+    if (!ph || !ta || !tc) return;
+    const h = Math.max(ta.clientHeight - 26, tc.offsetHeight) + 8; // +8 reaches the very bottom
+    ph.style.height = h + 'px';
   }
 
   _renderClip(track, clip) {
@@ -736,6 +746,7 @@ class StudioFlowDAW2 {
       if (!dragging) return;
       const h = Math.max(120, Math.min(window.innerHeight - 200, startH + (startY - e.clientY)));
       panel.style.height = h + 'px';
+      this._sizePlayhead();
     });
     window.addEventListener('mouseup', () => dragging = false);
   }
@@ -2002,6 +2013,7 @@ class StudioFlowDAW2 {
 
   _bindGlobal() {
     $('btn-logout').onclick = () => { SF2Auth.clearSession(); location.reload(); };
+    window.addEventListener('resize', () => this._sizePlayhead());
     const help = $('btn-pro-help');
     if (help) help.onclick = () => this.openGuide();
 
