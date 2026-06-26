@@ -516,6 +516,59 @@ class StudioFlowDAW2 {
     return out;
   }
 
+  // Vocal-solo "drop": in the selected time window, silence every non-vocal
+  // part (drums/bass/other) so only the vocal plays — an a-cappella breakdown
+  // for dramatic effect. Requires separated stems and a dragged range selection.
+  _vocalSoloDrop() {
+    const s = this.selection;
+    if (!s) { this.toast('先にクリップを左右ドラッグして範囲を選択してください'); return; }
+    const vocalTracks = this.tracks.filter(t => t.part === 'vocal');
+    const otherTracks = this.tracks.filter(t => t.part && t.part !== 'vocal');
+    if (vocalTracks.length === 0) { this.toast('ボーカルトラックがありません（先に音源分離してください）'); return; }
+    if (otherTracks.length === 0) { this.toast('消せる伴奏トラックがありません'); return; }
+
+    // Convert the selection (buffer samples on its source clip) to a timeline window.
+    const srcClip = this.getClip(s.trackId, s.clipId);
+    if (!srcClip) { this.toast('選択範囲が見つかりません'); return; }
+    const sr = srcClip.buffer.sampleRate;
+    const t0 = srcClip.startTime + s.s0 / sr - (srcClip.offset || 0);
+    const t1 = srcClip.startTime + s.s1 / sr - (srcClip.offset || 0);
+    if (t1 - t0 < 0.05) { this.toast('範囲が短すぎます'); return; }
+
+    this._pushUndo();
+    const fade = 0.008; // 8ms edge fades to avoid clicks
+    let affected = 0;
+    for (const t of otherTracks) {
+      for (const clip of t.clips) {
+        const cStart = clip.startTime, cEnd = clip.startTime + clip.duration;
+        const a = Math.max(t0, cStart), b = Math.min(t1, cEnd);
+        if (b - a < 0.001) continue; // no overlap
+        // clone buffer (clips can share buffers after a split) before mutating
+        const src = clip.buffer, ch = src.numberOfChannels, len = src.length;
+        const buf = new AudioBuffer({ numberOfChannels: ch, length: len, sampleRate: src.sampleRate });
+        for (let c = 0; c < ch; c++) buf.copyToChannel(src.getChannelData(c).slice(), c);
+        const i0 = Math.max(0, Math.floor(((clip.offset || 0) + (a - clip.startTime)) * src.sampleRate));
+        const i1 = Math.min(len, Math.floor(((clip.offset || 0) + (b - clip.startTime)) * src.sampleRate));
+        const fadeS = Math.min(Math.floor(fade * src.sampleRate), Math.floor((i1 - i0) / 2));
+        for (let c = 0; c < ch; c++) {
+          const d = buf.getChannelData(c);
+          for (let i = i0; i < i1; i++) {
+            let g = 0;
+            if (i - i0 < fadeS) g = 1 - (i - i0) / fadeS;            // fade out into silence
+            else if (i1 - i < fadeS) g = 1 - (i1 - 1 - i) / fadeS;   // fade back in at the end
+            d[i] *= g;
+          }
+        }
+        clip.buffer = buf;
+        clip._saved = false;
+        affected++;
+      }
+    }
+    this.selection = null;
+    this._refreshAll(); this._saveProject(); this._refreshPlaybackIfActive();
+    this.toast(affected ? `ボーカル独唱にしました（${affected}クリップを範囲消音）` : '選択範囲に伴奏がありませんでした');
+  }
+
   // ---------- clip editing ----------
   cutClip(trackId, clipId, atTime) {
     const track = this.getTrack(trackId);
@@ -1222,6 +1275,7 @@ class StudioFlowDAW2 {
           <h4><i class="fas fa-bolt"></i> 盛り上げFX / 分割</h4>
           <button class="pt-btn" data-act="sweep">サビ前スウィープ</button>
           <button class="pt-btn" data-act="buildup">ビルドアップFX</button>
+          <button class="pt-btn" data-act="vocalsolo" title="選択した範囲だけ、ボーカル以外（ドラム/ベース/その他）を消してアカペラ独唱にします">選択範囲をボーカル独唱に</button>
           <div class="prop-row"><label>分割数</label>
             <select id="pt-split"><option>2</option><option>3</option><option selected>4</option><option>6</option><option>8</option></select>
             <button class="pt-btn" data-act="split">波形自動分割</button>
@@ -1298,6 +1352,7 @@ class StudioFlowDAW2 {
     };
     if (rangeFns[act]) { this._applyClipProc(rangeFns[act]); return; }
     if (act === 'drums') { this.toast('ドラム強化中...'); this._applyClipProc(b => SF2ProTools.enhanceDrums(b, this.drumOpts), 'ドラムを強化しました'); return; }
+    if (act === 'vocalsolo') { this._vocalSoloDrop(); return; }
 
     const clip = this._selectedClipBuffer();
     if (!clip) { this.toast('クリップを選択してください'); return; }
