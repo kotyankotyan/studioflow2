@@ -973,14 +973,6 @@ class StudioFlowDAW2 {
         <p class="empty-hint">不要な低域を除去し、抜け（4kHz）と空気感（10kHz）を足して軽く圧縮します。</p>
       </div>
       <div class="panel-section">
-        <h4><i class="fas fa-drum"></i> ドラム強化（キック / スネア）</h4>
-        <div class="prop-row"><label title="60〜90Hz を最大+6dB">キック</label><input type="range" id="dr-kick" min="0" max="1" step="0.05" value="${this.drumOpts?.kick ?? 0.35}"><span id="dr-kick-v">${Math.round((this.drumOpts?.kick ?? 0.35)*100)}%</span></div>
-        <div class="prop-row"><label title="150〜250Hz と 2〜5kHz を最大+5dB">スネア</label><input type="range" id="dr-snare" min="0" max="1" step="0.05" value="${this.drumOpts?.snare ?? 0.35}"><span id="dr-snare-v">${Math.round((this.drumOpts?.snare ?? 0.35)*100)}%</span></div>
-        <div class="prop-row"><label title="パラレルコンプで叩きの粒立ち（パンチ）を強調">アタック</label><input type="range" id="dr-attack" min="0" max="1" step="0.05" value="${this.drumOpts?.attack ?? 0.3}"><span id="dr-attack-v">${Math.round((this.drumOpts?.attack ?? 0.3)*100)}%</span></div>
-        <button id="dr-apply" class="action-btn"><i class="fas fa-wand-magic"></i> 選択クリップ／範囲に適用</button>
-        <p class="empty-hint">分離済みドラムトラックに最適。範囲選択中はその部分だけに適用されます。</p>
-      </div>
-      <div class="panel-section">
         <h4>ケロケロ / オートチューン</h4>
         <div class="prop-row"><label>強度</label><input type="range" id="vp-autotune" min="0.2" max="1" step="0.1" value="0.5"></div>
         <button id="vp-apply-autotune" class="action-btn">適用</button>
@@ -995,13 +987,6 @@ class StudioFlowDAW2 {
     $('vp-enhance').onclick = () => {
       this.toast('ボーカル強化中...');
       this._applyClipProc(b => SF2ProTools.enhanceVocal(b), 'ボーカルを強化しました');
-    };
-    this.drumOpts = this.drumOpts || { kick: 0.35, snare: 0.35, attack: 0.3 };
-    const drBind = (id, key) => { const s = $(id), v = $(id + '-v'); if (!s) return; s.oninput = () => { this.drumOpts[key] = parseFloat(s.value); v.textContent = Math.round(this.drumOpts[key] * 100) + '%'; }; };
-    drBind('dr-kick', 'kick'); drBind('dr-snare', 'snare'); drBind('dr-attack', 'attack');
-    $('dr-apply').onclick = () => {
-      this.toast('ドラム強化中...');
-      this._applyClipProc(b => SF2ProTools.enhanceDrums(b, this.drumOpts), 'ドラムを強化しました');
     };
     $('vp-apply-autotune').onclick = () => {
       const t = this.getTrack(this.selectedTrackId);
@@ -1255,8 +1240,19 @@ class StudioFlowDAW2 {
           <button class="pt-btn" data-act="measure">LUFS / True Peak 計測</button>
           <p id="pt-measure-result" class="empty-hint">--</p>
         </div>
+        <div class="panel-section">
+          <h4><i class="fas fa-drum"></i> ドラム強化（キック / スネア）</h4>
+          <div class="prop-row"><label title="60〜90Hz を最大+6dB">キック</label><input type="range" id="dr-kick" min="0" max="1" step="0.05" value="${this.drumOpts?.kick ?? 0.35}"><span id="dr-kick-v">${Math.round((this.drumOpts?.kick ?? 0.35)*100)}%</span></div>
+          <div class="prop-row"><label title="150〜250Hz と 2〜5kHz を最大+5dB">スネア</label><input type="range" id="dr-snare" min="0" max="1" step="0.05" value="${this.drumOpts?.snare ?? 0.35}"><span id="dr-snare-v">${Math.round((this.drumOpts?.snare ?? 0.35)*100)}%</span></div>
+          <div class="prop-row"><label title="パラレルコンプで叩きの粒立ち（パンチ）を強調">アタック</label><input type="range" id="dr-attack" min="0" max="1" step="0.05" value="${this.drumOpts?.attack ?? 0.3}"><span id="dr-attack-v">${Math.round((this.drumOpts?.attack ?? 0.3)*100)}%</span></div>
+          <button class="pt-btn" data-act="drums">選択クリップ／範囲に適用</button>
+          <p class="empty-hint">分離済みドラムトラックに最適。範囲選択中はその部分だけに適用されます。</p>
+        </div>
       </div>`;
     pane.querySelectorAll('.pt-btn').forEach(b => b.onclick = () => this._proToolAction(b.dataset.act));
+    this.drumOpts = this.drumOpts || { kick: 0.35, snare: 0.35, attack: 0.3 };
+    const drBind = (id, key) => { const s = $(id), v = $(id + '-v'); if (!s) return; s.oninput = () => { this.drumOpts[key] = parseFloat(s.value); v.textContent = Math.round(this.drumOpts[key] * 100) + '%'; }; };
+    drBind('dr-kick', 'kick'); drBind('dr-snare', 'snare'); drBind('dr-attack', 'attack');
   }
 
   _selectedClipBuffer() {
@@ -1301,6 +1297,7 @@ class StudioFlowDAW2 {
       truepeak: b => P.applyTruePeakLimiter(b, parseFloat($('pt-tp').value)),
     };
     if (rangeFns[act]) { this._applyClipProc(rangeFns[act]); return; }
+    if (act === 'drums') { this.toast('ドラム強化中...'); this._applyClipProc(b => SF2ProTools.enhanceDrums(b, this.drumOpts), 'ドラムを強化しました'); return; }
 
     const clip = this._selectedClipBuffer();
     if (!clip) { this.toast('クリップを選択してください'); return; }
