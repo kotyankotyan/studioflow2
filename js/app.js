@@ -1256,6 +1256,7 @@ class StudioFlowDAW2 {
     const pane = $('pane-protools');
     if (!pane) return;
     const de = (this._drumTarget()?.drumEq) || { kick: 0, snare: 0, attack: 0 };
+    const be = (this._bassTarget()?.bassEq) || { sub: 0, body: 0, edge: 0 };
     pane.innerHTML = `
       <p class="pt-range-hint"><i class="fas fa-arrow-pointer"></i> 部分的にかけるには：トラックのクリップ（波形）を<b>左右にドラッグして範囲選択</b>してから、フェード/正規化/True Peak/ボーカル強化を実行（範囲未選択ならクリップ全体）。Escで選択解除。</p>
       <div class="protools-grid">
@@ -1305,6 +1306,14 @@ class StudioFlowDAW2 {
           <div class="prop-row"><label title="3.5kHzの叩き・抜け（アタック感）。左=弱める / 右=強める">アタック</label><input type="range" id="dr-attack" min="-1" max="1" step="0.05" value="${de.attack}"><span id="dr-attack-v">${this._drumPct(de.attack)}</span></div>
           <p class="empty-hint">中央=原音。スライドするだけで即反映（適用ボタン不要）。分離済みドラムトラックに最適。</p>
         </div>
+        <div class="panel-section">
+          <h4><i class="fas fa-guitar"></i> ベース強化（サブ / 太さ）</h4>
+          <p id="bs-target" class="empty-hint"></p>
+          <div class="prop-row"><label title="50Hz中心の超低域の重み。左=弱める / 右=強める">サブ</label><input type="range" id="bs-sub" min="-1" max="1" step="0.05" value="${be.sub}"><span id="bs-sub-v">${this._drumPct(be.sub)}</span></div>
+          <div class="prop-row"><label title="100Hz中心の基音の太さ。左=弱める / 右=強める">太さ</label><input type="range" id="bs-body" min="-1" max="1" step="0.05" value="${be.body}"><span id="bs-body-v">${this._drumPct(be.body)}</span></div>
+          <div class="prop-row"><label title="800Hzの輪郭・抜け（小型スピーカーでの聞こえ）。左=弱める / 右=強める">輪郭</label><input type="range" id="bs-edge" min="-1" max="1" step="0.05" value="${be.edge}"><span id="bs-edge-v">${this._drumPct(be.edge)}</span></div>
+          <p class="empty-hint">中央=原音。スライドするだけで即反映（適用ボタン不要）。分離済みベーストラックに最適。</p>
+        </div>
       </div>`;
     pane.querySelectorAll('.pt-btn').forEach(b => b.onclick = () => this._proToolAction(b.dataset.act));
     const tgt = this._drumTarget();
@@ -1324,6 +1333,24 @@ class StudioFlowDAW2 {
       };
     };
     drBind('dr-kick', 'kick'); drBind('dr-snare', 'snare'); drBind('dr-attack', 'attack');
+
+    const bTgt = this._bassTarget();
+    const bEl = $('bs-target');
+    if (bEl) bEl.textContent = bTgt ? `対象: ${PART_LABELS[bTgt.part] || bTgt.name}` : '対象トラックがありません（音源を読み込むか選択してください）';
+    const bsBind = (id, key) => {
+      const s = $(id), v = $(id + '-v'); if (!s) return;
+      s.oninput = () => {
+        const val = parseFloat(s.value);
+        v.textContent = this._drumPct(val);
+        const t = this._bassTarget(); if (!t) return;
+        t.bassEq = t.bassEq || { sub: 0, body: 0, edge: 0 };
+        t.bassEq[key] = val;
+        this._applyBassEq(t);                       // live, instant
+        clearTimeout(this._bassSaveTimer);
+        this._bassSaveTimer = setTimeout(() => this._saveProject(), 400);
+      };
+    };
+    bsBind('bs-sub', 'sub'); bsBind('bs-body', 'body'); bsBind('bs-edge', 'edge');
   }
 
   // ----- drum enhancement (live, bipolar EQ on the track graph) -----
@@ -1346,6 +1373,24 @@ class StudioFlowDAW2 {
     n.drKick && n.drKick.gain.setTargetAtTime((de.kick || 0) * D.kick, t, 0.02);
     n.drSnare && n.drSnare.gain.setTargetAtTime((de.snare || 0) * D.snare, t, 0.02);
     n.drAttack && n.drAttack.gain.setTargetAtTime((de.attack || 0) * D.attack, t, 0.02);
+  }
+
+  // ----- bass enhancement (live, bipolar EQ on the track graph) -----
+  static get BASS_DB() { return { sub: 9, body: 7, edge: 6 }; }
+
+  _bassTarget() {
+    return this.tracks.find(t => t.part === 'bass')
+      || this.getTrack(this.selectedTrackId)
+      || this.tracks[0] || null;
+  }
+
+  _applyBassEq(track) {
+    if (!track || !track.nodes) return;
+    const be = track.bassEq || { sub: 0, body: 0, edge: 0 };
+    const B = StudioFlowDAW2.BASS_DB, n = track.nodes, t = this.engine.ctx.currentTime;
+    n.bsSub && n.bsSub.gain.setTargetAtTime((be.sub || 0) * B.sub, t, 0.02);
+    n.bsBody && n.bsBody.gain.setTargetAtTime((be.body || 0) * B.body, t, 0.02);
+    n.bsEdge && n.bsEdge.gain.setTargetAtTime((be.edge || 0) * B.edge, t, 0.02);
   }
 
   _selectedClipBuffer() {
@@ -1599,6 +1644,9 @@ class StudioFlowDAW2 {
           if (n.drKick) n.drKick.gain.value = 0;
           if (n.drSnare) n.drSnare.gain.value = 0;
           if (n.drAttack) n.drAttack.gain.value = 0;
+          if (n.bsSub) n.bsSub.gain.value = 0;
+          if (n.bsBody) n.bsBody.gain.value = 0;
+          if (n.bsEdge) n.bsEdge.gain.value = 0;
           n.reverbWet.gain.value = 0; n.reverbDry.gain.value = 1;
           if (n.sweepFilter) n.sweepFilter.frequency.value = 20000;
         }
@@ -1631,6 +1679,7 @@ class StudioFlowDAW2 {
       t.volume = 1; t.pan = 0; t.muted = false; t.solo = false; t.reverb = 0;
       t._editedBuf = null;
       t.drumEq = { kick: 0, snare: 0, attack: 0 };
+      t.bassEq = { sub: 0, body: 0, edge: 0 };
       const n = t.nodes;
       if (n) {
         n.gainNode.gain.value = 1;
@@ -1639,6 +1688,9 @@ class StudioFlowDAW2 {
         if (n.drKick) n.drKick.gain.value = 0;
         if (n.drSnare) n.drSnare.gain.value = 0;
         if (n.drAttack) n.drAttack.gain.value = 0;
+        if (n.bsSub) n.bsSub.gain.value = 0;
+        if (n.bsBody) n.bsBody.gain.value = 0;
+        if (n.bsEdge) n.bsEdge.gain.value = 0;
         n.reverbWet.gain.value = 0; n.reverbDry.gain.value = 1;
         if (n.sweepFilter) n.sweepFilter.frequency.value = 20000;
       }
@@ -1888,6 +1940,7 @@ class StudioFlowDAW2 {
           high: t.nodes?.eqHigh?.gain?.value ?? 0,
         },
         drumEq: { ...(t.drumEq || { kick: 0, snare: 0, attack: 0 }) },
+        bassEq: { ...(t.bassEq || { sub: 0, body: 0, edge: 0 }) },
         automation: JSON.parse(JSON.stringify(t.automation || {})),
         clips: t.clips.map(c => ({ ...c })),       // buffers are shared by reference
         fxClips: (t.fxClips || []).map(f => ({ ...f })),
@@ -1910,6 +1963,8 @@ class StudioFlowDAW2 {
       t.nodes.eqLow.gain.value = eq.low; t.nodes.eqMid.gain.value = eq.mid; t.nodes.eqHigh.gain.value = eq.high;
       t.drumEq = s.drumEq || { kick: 0, snare: 0, attack: 0 };
       this._applyDrumEq(t);
+      t.bassEq = s.bassEq || { sub: 0, body: 0, edge: 0 };
+      this._applyBassEq(t);
       return t;
     });
     this.engine.tracks = this.tracks;
@@ -2031,6 +2086,7 @@ class StudioFlowDAW2 {
           id: t.id, name: t.name, part: t.part, color: t.color,
           volume: t.volume, pan: t.pan, muted: t.muted, solo: t.solo, reverb: t.reverb ?? 0,
           drumEq: t.drumEq || { kick: 0, snare: 0, attack: 0 },
+          bassEq: t.bassEq || { sub: 0, body: 0, edge: 0 },
           automation: t.automation || {},
           fxClips: t.fxClips || [],
           clips: [],
@@ -2075,6 +2131,8 @@ class StudioFlowDAW2 {
         track.nodes.reverbDry.gain.value = 1 - track.reverb * 0.5;
         track.drumEq = tm.drumEq || { kick: 0, snare: 0, attack: 0 };
         this._applyDrumEq(track);
+        track.bassEq = tm.bassEq || { sub: 0, body: 0, edge: 0 };
+        this._applyBassEq(track);
         for (const cm of tm.clips) {
           let buf = bufCache.get(cm.bufKey);
           if (!buf) { buf = await SF2Storage.loadBuffer(cm.bufKey, this.engine.ctx); if (buf) bufCache.set(cm.bufKey, buf); }
