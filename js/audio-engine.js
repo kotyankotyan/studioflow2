@@ -103,6 +103,11 @@ class AudioEngine {
     const eqHigh = ctx.createBiquadFilter();
     eqHigh.type = 'highshelf'; eqHigh.frequency.value = 4000;
 
+    // Drum enhancement bands (live, bipolar: cut or boost). Neutral at 0dB.
+    const drKick = ctx.createBiquadFilter(); drKick.type = 'peaking'; drKick.frequency.value = 80; drKick.Q.value = 0.8;
+    const drSnare = ctx.createBiquadFilter(); drSnare.type = 'peaking'; drSnare.frequency.value = 220; drSnare.Q.value = 1.0;
+    const drAttack = ctx.createBiquadFilter(); drAttack.type = 'peaking'; drAttack.frequency.value = 3500; drAttack.Q.value = 0.9;
+
     const convolver = ctx.createConvolver();
     const reverbDry = ctx.createGain(); reverbDry.gain.value = 1;
     const reverbWet = ctx.createGain(); reverbWet.gain.value = 0;
@@ -119,8 +124,11 @@ class AudioEngine {
     convolver.buffer = irBuf;
 
     // Signal chain:
-    // gainNode → panNode → eqLow → eqMid → eqHigh → reverbDry/wet merge → sweepFilter → analyser → master
-    gainNode.connect(panNode);
+    // gainNode → drKick → drSnare → drAttack → panNode → eqLow → eqMid → eqHigh → reverbDry/wet merge → sweepFilter → analyser → master
+    gainNode.connect(drKick);
+    drKick.connect(drSnare);
+    drSnare.connect(drAttack);
+    drAttack.connect(panNode);
     panNode.connect(eqLow);
     eqLow.connect(eqMid);
     eqMid.connect(eqHigh);
@@ -133,7 +141,7 @@ class AudioEngine {
     sweepFilter.connect(analyser);
     analyser.connect(this._masterChainInput);
 
-    return { gainNode, panNode, eqLow, eqMid, eqHigh, convolver, reverbDry, reverbWet, reverbMix, sweepFilter, analyser };
+    return { gainNode, panNode, drKick, drSnare, drAttack, eqLow, eqMid, eqHigh, convolver, reverbDry, reverbWet, reverbMix, sweepFilter, analyser };
   }
 
   disconnectTrackNodes(nodes) {
@@ -300,6 +308,18 @@ class AudioEngine {
       const eqHigh = offCtx.createBiquadFilter(); eqHigh.type = 'highshelf'; eqHigh.frequency.value = 4000;
       eqHigh.gain.value = track.nodes?.eqHigh?.gain?.value ?? 0;
 
+      // drum enhancement bands (mirror live drKick/drSnare/drAttack). Read from
+      // track.drumEq (normalized -1..1, source of truth) so the export matches the
+      // slider regardless of the live param's setTargetAtTime ramp state.
+      const de = track.drumEq || { kick: 0, snare: 0, attack: 0 };
+      const DRUM_DB = { kick: 9, snare: 7, attack: 7 };
+      const drKick = offCtx.createBiquadFilter(); drKick.type = 'peaking'; drKick.frequency.value = 80; drKick.Q.value = 0.8;
+      drKick.gain.value = (de.kick || 0) * DRUM_DB.kick;
+      const drSnare = offCtx.createBiquadFilter(); drSnare.type = 'peaking'; drSnare.frequency.value = 220; drSnare.Q.value = 1.0;
+      drSnare.gain.value = (de.snare || 0) * DRUM_DB.snare;
+      const drAttack = offCtx.createBiquadFilter(); drAttack.type = 'peaking'; drAttack.frequency.value = 3500; drAttack.Q.value = 0.9;
+      drAttack.gain.value = (de.attack || 0) * DRUM_DB.attack;
+
       // reverb dry/wet (mirror live convolver mix). Use the stored track.reverb
       // amount — reading the live AudioParam .value is unreliable right after a
       // setTargetAtTime ramp.
@@ -311,7 +331,7 @@ class AudioEngine {
       sweep.type = 'lowpass';
       sweep.frequency.value = track.nodes?.sweepFilter?.frequency?.value ?? 20000;
 
-      gainNode.connect(panNode);
+      gainNode.connect(drKick); drKick.connect(drSnare); drSnare.connect(drAttack); drAttack.connect(panNode);
       panNode.connect(eqLow); eqLow.connect(eqMid); eqMid.connect(eqHigh);
       eqHigh.connect(reverbDry); reverbDry.connect(reverbMix);
       if (irBuf && reverbWet.gain.value > 0.0001) {
