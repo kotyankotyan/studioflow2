@@ -453,6 +453,22 @@ function enhanceBass(buffer, opts = {}) {
   ]);
 }
 
+// Silence a buffer (used on a selected range to "mute" that section). The body
+// is zeroed; the edges keep a short fade (the original audio ramped to/from 0)
+// so the transition into and out of the silence has no click.
+function silenceRegion(buffer, fadeSec = 0.006) {
+  const ch = buffer.numberOfChannels, sr = buffer.sampleRate, len = buffer.length;
+  const out = new AudioBuffer({ numberOfChannels: ch, length: len, sampleRate: sr });
+  const fadeS = Math.min(Math.floor(fadeSec * sr), Math.floor(len / 2));
+  for (let c = 0; c < ch; c++) {
+    const src = buffer.getChannelData(c), dst = out.getChannelData(c);
+    for (let i = 0; i < fadeS; i++) dst[i] = src[i] * (1 - i / fadeS);            // fade down into silence
+    for (let i = len - fadeS; i < len; i++) dst[i] = src[i] * ((i - (len - fadeS)) / fadeS); // fade up out of silence
+    // middle stays 0
+  }
+  return out;
+}
+
 // Krumhansl-Schmuckler key detection
 function detectKey(buffer) {
   const data = buffer.getChannelData(0);
@@ -518,5 +534,6 @@ window.SF2ProTools = {
   enhanceVocal,
   enhanceDrums,
   enhanceBass,
+  silenceRegion,
   timeStretch,
 };

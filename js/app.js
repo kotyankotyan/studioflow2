@@ -1264,6 +1264,7 @@ class StudioFlowDAW2 {
           <button class="pt-btn" data-act="trim">無音カット</button>
           <button class="pt-btn" data-act="fadein">フェードイン</button>
           <button class="pt-btn" data-act="fadeout">フェードアウト</button>
+          <button class="pt-btn" data-act="silence" title="選択した範囲だけを無音にします（このトラックの一部分をミュート）。先に波形を範囲選択してください。">選択範囲を無音化</button>
           <button class="pt-btn" data-act="suno">Suno EQクリーンアップ</button>
           <div class="prop-row"><label>LUFS</label>
             <select id="pt-lufs"><option value="-14">-14</option><option value="-16">-16</option><option value="-9">-9</option><option value="-23">-23</option></select>
@@ -1385,6 +1386,13 @@ class StudioFlowDAW2 {
       truepeak: b => P.applyTruePeakLimiter(b, parseFloat($('pt-tp').value)),
     };
     if (rangeFns[act]) { this._applyClipProc(rangeFns[act]); return; }
+    if (act === 'silence') {
+      const clip = this._selectedClipBuffer();
+      if (!clip || !this.selection || this.selection.clipId !== clip.id) {
+        this.toast('先に波形を左右にドラッグして範囲選択してください'); return;
+      }
+      this._applyClipProc(b => P.silenceRegion(b), '選択範囲を無音化しました'); return;
+    }
     if (act === 'vocalsolo') { this._vocalSoloDrop(); return; }
     if (act === 'drums') { this._applyEnhance('drums'); return; }
     if (act === 'bass') { this._applyEnhance('bass'); return; }
