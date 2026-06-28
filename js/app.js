@@ -369,6 +369,7 @@ class StudioFlowDAW2 {
     for (const track of this.tracks) {
       const row = document.createElement('div');
       row.className = 'track-row';
+      row.dataset.trackId = track.id;
       if (track.id === this.selectedTrackId) row.classList.add('selected');
 
       const head = document.createElement('div');
@@ -377,6 +378,7 @@ class StudioFlowDAW2 {
       head.innerHTML = `
         <div class="track-head-top">
           <div class="track-title" title="${esc(track.name)}">${esc(track.name)}</div>
+          <span class="enh-badge-slot">${this._enhBadgeHTML(track)}</span>
           <button class="th-btn del" title="このトラック（曲）を削除"><i class="fas fa-trash"></i></button>
         </div>
         <div class="track-head-ctrls">
@@ -1328,6 +1330,7 @@ class StudioFlowDAW2 {
         t.drumEq = t.drumEq || { kick: 0, snare: 0, attack: 0 };
         t.drumEq[key] = val;
         this._applyDrumEq(t);                       // live, instant
+        this._updateEnhBadge(t);                    // visual feedback
         clearTimeout(this._drumSaveTimer);
         this._drumSaveTimer = setTimeout(() => this._saveProject(), 400);
       };
@@ -1346,6 +1349,7 @@ class StudioFlowDAW2 {
         t.bassEq = t.bassEq || { sub: 0, body: 0, edge: 0 };
         t.bassEq[key] = val;
         this._applyBassEq(t);                       // live, instant
+        this._updateEnhBadge(t);                    // visual feedback
         clearTimeout(this._bassSaveTimer);
         this._bassSaveTimer = setTimeout(() => this._saveProject(), 400);
       };
@@ -1391,6 +1395,30 @@ class StudioFlowDAW2 {
     n.bsSub && n.bsSub.gain.setTargetAtTime((be.sub || 0) * B.sub, t, 0.02);
     n.bsBody && n.bsBody.gain.setTargetAtTime((be.body || 0) * B.body, t, 0.02);
     n.bsEdge && n.bsEdge.gain.setTargetAtTime((be.edge || 0) * B.edge, t, 0.02);
+  }
+
+  // ----- "強化中" badge (visual feedback for the live drum/bass EQ) -----
+  _enhSummary(track) {
+    const out = [];
+    const add = (label, v) => { if (Math.abs(v || 0) >= 0.025) out.push(`${label} ${v > 0 ? '+' : ''}${Math.round(v * 100)}%`); };
+    const de = track.drumEq || {}, be = track.bassEq || {};
+    add('キック', de.kick); add('スネア', de.snare); add('アタック', de.attack);
+    add('サブ', be.sub); add('太さ', be.body); add('輪郭', be.edge);
+    return out;
+  }
+
+  _enhBadgeHTML(track) {
+    const items = this._enhSummary(track);
+    if (items.length === 0) return '';
+    const up = items.some(s => s.includes('+')), down = items.some(s => /-\d/.test(s));
+    const icon = up && !down ? '▲' : (down && !up ? '▼' : '▲▼');
+    return `<span class="enh-badge" title="${esc(items.join(' / '))}"><i class="fas fa-sliders"></i> 強化中 ${icon}</span>`;
+  }
+
+  _updateEnhBadge(track) {
+    if (!track) return;
+    const slot = document.querySelector(`.track-row[data-track-id="${track.id}"] .enh-badge-slot`);
+    if (slot) slot.innerHTML = this._enhBadgeHTML(track);
   }
 
   _selectedClipBuffer() {

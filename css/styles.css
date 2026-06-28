@@ -224,6 +224,12 @@ label { font-size: 12px; color: var(--text-dim); }
 .th-btn.on.mute { background: var(--accent); color: #fff; }
 .th-btn.on.solo { background: var(--accent-yellow); color: #000; }
 .th-vol { flex: 1; min-width: 0; }
+.enh-badge-slot { flex-shrink: 0; }
+.enh-badge { display: inline-flex; align-items: center; gap: 3px; font-size: 10px; font-weight: 700;
+  color: #000; background: var(--accent-yellow); border-radius: 9px; padding: 1px 7px; white-space: nowrap;
+  animation: enhPulse 1.4s ease-in-out infinite; }
+.enh-badge i { font-size: 9px; }
+@keyframes enhPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.55; } }
 
 .track-lane { position: relative; flex: 1; min-width: 0; }
 .clip {
