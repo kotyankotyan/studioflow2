@@ -399,31 +399,28 @@ async function timeStretch(buffer, ratio, onProgress) {
   return out;
 }
 
-// Vocal enhancement (clarity): high-pass rumble, presence boost (~4kHz),
-// air (~10kHz) and gentle compression. Returns a processed AudioBuffer.
-async function enhanceVocal(buffer) {
-  const ctx = new OfflineAudioContext(buffer.numberOfChannels, buffer.length, buffer.sampleRate);
-  const src = ctx.createBufferSource(); src.buffer = buffer;
-  const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 95;
-  const pres = ctx.createBiquadFilter(); pres.type = 'peaking'; pres.frequency.value = 4000; pres.Q.value = 1; pres.gain.value = 4;
-  const air = ctx.createBiquadFilter(); air.type = 'highshelf'; air.frequency.value = 10000; air.gain.value = 2.5;
-  const comp = ctx.createDynamicsCompressor();
-  comp.threshold.value = -20; comp.knee.value = 6; comp.ratio.value = 3; comp.attack.value = 0.005; comp.release.value = 0.2;
-  const makeup = ctx.createGain(); makeup.gain.value = 1.15;
-  src.connect(hp); hp.connect(pres); pres.connect(air); air.connect(comp); comp.connect(makeup); makeup.connect(ctx.destination);
-  src.start(0);
-  return ctx.startRendering();
+// Vocal enhancement (bipolar). amounts -1..1: negative = weaken, positive = strengthen.
+//   clarity -> ±7 dB @ 4kHz (presence/抜け)   air -> ±6 dB highshelf @ 10kHz
+//   body    -> ±6 dB @ 220Hz (温かみ/太さ)
+function enhanceVocal(buffer, opts = {}) {
+  const c = v => Math.max(-1, Math.min(1, v || 0));
+  return eqBands(buffer, [
+    { freq: 4000,  Q: 1.0, gainDb: c(opts.clarity) * 7 },
+    { freq: 10000, type: 'highshelf', gainDb: c(opts.air) * 6 },
+    { freq: 220,   Q: 0.9, gainDb: c(opts.body) * 6 },
+  ]);
 }
 
 // Bipolar band EQ baked into the buffer (so the waveform changes). Each band is
-// { freq, Q, gainDb }; gainDb may be negative (cut) or positive (boost).
+// { freq, Q, gainDb, type? }; gainDb may be negative (cut) or positive (boost).
+// type defaults to 'peaking' (Q matters); 'highshelf'/'lowshelf' ignore Q.
 async function eqBands(buffer, bands) {
   const ctx = new OfflineAudioContext(buffer.numberOfChannels, buffer.length, buffer.sampleRate);
   const src = ctx.createBufferSource(); src.buffer = buffer;
   let node = src;
   for (const b of bands) {
     const f = ctx.createBiquadFilter();
-    f.type = 'peaking'; f.frequency.value = b.freq; f.Q.value = b.Q; f.gain.value = b.gainDb;
+    f.type = b.type || 'peaking'; f.frequency.value = b.freq; f.Q.value = b.Q || 1; f.gain.value = b.gainDb;
     node.connect(f); node = f;
   }
   node.connect(ctx.destination);

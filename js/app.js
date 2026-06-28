@@ -1025,8 +1025,11 @@ class StudioFlowDAW2 {
       </div>
       <div class="panel-section">
         <h4>ボーカル強化（明瞭化）</h4>
-        <button id="vp-enhance" class="action-btn"><i class="fas fa-wand-magic"></i> 選択クリップを強化</button>
-        <p class="empty-hint">不要な低域を除去し、抜け（4kHz）と空気感（10kHz）を足して軽く圧縮します。</p>
+        <div class="prop-row"><label title="4kHz中心の抜け・明瞭さ。左=弱める / 右=強める">明瞭さ</label><input type="range" id="vp-clarity" min="-1" max="1" step="0.05" value="0"><span id="vp-clarity-v">0%</span></div>
+        <div class="prop-row"><label title="10kHzの空気感・きらびやかさ。左=弱める / 右=強める">空気感</label><input type="range" id="vp-air" min="-1" max="1" step="0.05" value="0"><span id="vp-air-v">0%</span></div>
+        <div class="prop-row"><label title="220Hzの温かみ・太さ。左=細く / 右=太く">温かみ</label><input type="range" id="vp-body" min="-1" max="1" step="0.05" value="0"><span id="vp-body-v">0%</span></div>
+        <button id="vp-enhance" class="action-btn"><i class="fas fa-wand-magic"></i> 選択クリップ／範囲に適用</button>
+        <p class="empty-hint">中央=変化なし。右で強め / 左で弱め、<b>「適用」で波形に反映</b>されます（範囲選択中はその部分だけ）。</p>
       </div>
       <div class="panel-section">
         <h4>ケロケロ / オートチューン</h4>
@@ -1040,9 +1043,15 @@ class StudioFlowDAW2 {
       </div>`;
     $('vp-sep-strength').oninput = e => { this.sepStrength = parseFloat(e.target.value); $('vp-sep-val').textContent = Math.round(this.sepStrength * 100) + '%'; };
     $('vp-separate').onclick = () => this._aiSeparate();
-    $('vp-enhance').onclick = () => {
-      this.toast('ボーカル強化中...');
-      this._applyClipProc(b => SF2ProTools.enhanceVocal(b), 'ボーカルを強化しました');
+    const vpPct = (id) => { const s = $(id), v = $(id + '-v'); if (s) s.oninput = () => v.textContent = this._drumPct(parseFloat(s.value)); };
+    ['vp-clarity', 'vp-air', 'vp-body'].forEach(vpPct);
+    $('vp-enhance').onclick = async () => {
+      const f = parseFloat;
+      const opts = { clarity: f($('vp-clarity').value), air: f($('vp-air').value), body: f($('vp-body').value) };
+      if (!opts.clarity && !opts.air && !opts.body) { this.toast('スライダーを動かしてから適用してください'); return; }
+      this.toast('ボーカル処理中...');
+      await this._applyClipProc(b => SF2ProTools.enhanceVocal(b, opts), 'ボーカルに適用しました（波形に反映）');
+      this._resetEnhSliders(['vp-clarity', 'vp-air', 'vp-body']);
     };
     $('vp-apply-autotune').onclick = () => {
       const t = this.getTrack(this.selectedTrackId);
