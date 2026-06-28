@@ -415,6 +415,44 @@ async function enhanceVocal(buffer) {
   return ctx.startRendering();
 }
 
+// Bipolar band EQ baked into the buffer (so the waveform changes). Each band is
+// { freq, Q, gainDb }; gainDb may be negative (cut) or positive (boost).
+async function eqBands(buffer, bands) {
+  const ctx = new OfflineAudioContext(buffer.numberOfChannels, buffer.length, buffer.sampleRate);
+  const src = ctx.createBufferSource(); src.buffer = buffer;
+  let node = src;
+  for (const b of bands) {
+    const f = ctx.createBiquadFilter();
+    f.type = 'peaking'; f.frequency.value = b.freq; f.Q.value = b.Q; f.gain.value = b.gainDb;
+    node.connect(f); node = f;
+  }
+  node.connect(ctx.destination);
+  src.start(0);
+  return ctx.startRendering();
+}
+
+// Drum enhancement (bipolar). amounts -1..1: negative = weaken, positive = strengthen.
+//   kick   -> ±9 dB @ 80Hz    snare -> ±7 dB @ 220Hz    attack -> ±7 dB @ 3.5kHz
+function enhanceDrums(buffer, opts = {}) {
+  const c = v => Math.max(-1, Math.min(1, v || 0));
+  return eqBands(buffer, [
+    { freq: 80,   Q: 0.8, gainDb: c(opts.kick)   * 9 },
+    { freq: 220,  Q: 1.0, gainDb: c(opts.snare)  * 7 },
+    { freq: 3500, Q: 0.9, gainDb: c(opts.attack) * 7 },
+  ]);
+}
+
+// Bass enhancement (bipolar). amounts -1..1: negative = weaken, positive = strengthen.
+//   sub -> ±9 dB @ 50Hz    body -> ±7 dB @ 100Hz    edge -> ±6 dB @ 800Hz
+function enhanceBass(buffer, opts = {}) {
+  const c = v => Math.max(-1, Math.min(1, v || 0));
+  return eqBands(buffer, [
+    { freq: 50,  Q: 0.8, gainDb: c(opts.sub)  * 9 },
+    { freq: 100, Q: 0.9, gainDb: c(opts.body) * 7 },
+    { freq: 800, Q: 0.9, gainDb: c(opts.edge) * 6 },
+  ]);
+}
+
 // Krumhansl-Schmuckler key detection
 function detectKey(buffer) {
   const data = buffer.getChannelData(0);
@@ -478,5 +516,7 @@ window.SF2ProTools = {
   detectBPM,
   detectKey,
   enhanceVocal,
+  enhanceDrums,
+  enhanceBass,
   timeStretch,
 };

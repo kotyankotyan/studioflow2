@@ -378,7 +378,6 @@ class StudioFlowDAW2 {
       head.innerHTML = `
         <div class="track-head-top">
           <div class="track-title" title="${esc(track.name)}">${esc(track.name)}</div>
-          <span class="enh-badge-slot">${this._enhBadgeHTML(track)}</span>
           <button class="th-btn del" title="このトラック（曲）を削除"><i class="fas fa-trash"></i></button>
         </div>
         <div class="track-head-ctrls">
@@ -1257,8 +1256,6 @@ class StudioFlowDAW2 {
   _renderProTools() {
     const pane = $('pane-protools');
     if (!pane) return;
-    const de = (this._drumTarget()?.drumEq) || { kick: 0, snare: 0, attack: 0 };
-    const be = (this._bassTarget()?.bassEq) || { sub: 0, body: 0, edge: 0 };
     pane.innerHTML = `
       <p class="pt-range-hint"><i class="fas fa-arrow-pointer"></i> 部分的にかけるには：トラックのクリップ（波形）を<b>左右にドラッグして範囲選択</b>してから、フェード/正規化/True Peak/ボーカル強化を実行（範囲未選択ならクリップ全体）。Escで選択解除。</p>
       <div class="protools-grid">
@@ -1302,123 +1299,31 @@ class StudioFlowDAW2 {
         </div>
         <div class="panel-section">
           <h4><i class="fas fa-drum"></i> ドラム強化（キック / スネア）</h4>
-          <p id="dr-target" class="empty-hint"></p>
-          <div class="prop-row"><label title="80Hz中心の低域。左=弱める / 右=強める">キック</label><input type="range" id="dr-kick" min="-1" max="1" step="0.05" value="${de.kick}"><span id="dr-kick-v">${this._drumPct(de.kick)}</span></div>
-          <div class="prop-row"><label title="220Hz中心の胴鳴り。左=弱める / 右=強める">スネア</label><input type="range" id="dr-snare" min="-1" max="1" step="0.05" value="${de.snare}"><span id="dr-snare-v">${this._drumPct(de.snare)}</span></div>
-          <div class="prop-row"><label title="3.5kHzの叩き・抜け（アタック感）。左=弱める / 右=強める">アタック</label><input type="range" id="dr-attack" min="-1" max="1" step="0.05" value="${de.attack}"><span id="dr-attack-v">${this._drumPct(de.attack)}</span></div>
-          <p class="empty-hint">中央=原音。スライドするだけで即反映（適用ボタン不要）。分離済みドラムトラックに最適。</p>
+          <div class="prop-row"><label title="80Hz中心の低域。左=弱める / 右=強める">キック</label><input type="range" id="dr-kick" min="-1" max="1" step="0.05" value="0"><span id="dr-kick-v">0%</span></div>
+          <div class="prop-row"><label title="220Hz中心の胴鳴り。左=弱める / 右=強める">スネア</label><input type="range" id="dr-snare" min="-1" max="1" step="0.05" value="0"><span id="dr-snare-v">0%</span></div>
+          <div class="prop-row"><label title="3.5kHzの叩き・抜け（アタック感）。左=弱める / 右=強める">アタック</label><input type="range" id="dr-attack" min="-1" max="1" step="0.05" value="0"><span id="dr-attack-v">0%</span></div>
+          <button class="pt-btn" data-act="drums">選択クリップ／範囲に適用</button>
+          <p class="empty-hint">中央=変化なし。右で強め / 左で弱め、<b>「適用」で波形に反映</b>されます（範囲選択中はその部分だけ）。分離済みドラムトラックに最適。</p>
         </div>
         <div class="panel-section">
           <h4><i class="fas fa-guitar"></i> ベース強化（サブ / 太さ）</h4>
-          <p id="bs-target" class="empty-hint"></p>
-          <div class="prop-row"><label title="50Hz中心の超低域の重み。左=弱める / 右=強める">サブ</label><input type="range" id="bs-sub" min="-1" max="1" step="0.05" value="${be.sub}"><span id="bs-sub-v">${this._drumPct(be.sub)}</span></div>
-          <div class="prop-row"><label title="100Hz中心の基音の太さ。左=弱める / 右=強める">太さ</label><input type="range" id="bs-body" min="-1" max="1" step="0.05" value="${be.body}"><span id="bs-body-v">${this._drumPct(be.body)}</span></div>
-          <div class="prop-row"><label title="800Hzの輪郭・抜け（小型スピーカーでの聞こえ）。左=弱める / 右=強める">輪郭</label><input type="range" id="bs-edge" min="-1" max="1" step="0.05" value="${be.edge}"><span id="bs-edge-v">${this._drumPct(be.edge)}</span></div>
-          <p class="empty-hint">中央=原音。スライドするだけで即反映（適用ボタン不要）。分離済みベーストラックに最適。</p>
+          <div class="prop-row"><label title="50Hz中心の超低域の重み。左=弱める / 右=強める">サブ</label><input type="range" id="bs-sub" min="-1" max="1" step="0.05" value="0"><span id="bs-sub-v">0%</span></div>
+          <div class="prop-row"><label title="100Hz中心の基音の太さ。左=弱める / 右=強める">太さ</label><input type="range" id="bs-body" min="-1" max="1" step="0.05" value="0"><span id="bs-body-v">0%</span></div>
+          <div class="prop-row"><label title="800Hzの輪郭・抜け（小型スピーカーでの聞こえ）。左=弱める / 右=強める">輪郭</label><input type="range" id="bs-edge" min="-1" max="1" step="0.05" value="0"><span id="bs-edge-v">0%</span></div>
+          <button class="pt-btn" data-act="bass">選択クリップ／範囲に適用</button>
+          <p class="empty-hint">中央=変化なし。右で強め / 左で弱め、<b>「適用」で波形に反映</b>されます（範囲選択中はその部分だけ）。分離済みベーストラックに最適。</p>
         </div>
       </div>`;
     pane.querySelectorAll('.pt-btn').forEach(b => b.onclick = () => this._proToolAction(b.dataset.act));
-    const tgt = this._drumTarget();
-    const tEl = $('dr-target');
-    if (tEl) tEl.textContent = tgt ? `対象: ${PART_LABELS[tgt.part] || tgt.name}` : '対象トラックがありません（音源を読み込むか選択してください）';
-    const drBind = (id, key) => {
-      const s = $(id), v = $(id + '-v'); if (!s) return;
-      s.oninput = () => {
-        const val = parseFloat(s.value);
-        v.textContent = this._drumPct(val);
-        const t = this._drumTarget(); if (!t) return;
-        t.drumEq = t.drumEq || { kick: 0, snare: 0, attack: 0 };
-        t.drumEq[key] = val;
-        this._applyDrumEq(t);                       // live, instant
-        this._updateEnhBadge(t);                    // visual feedback
-        clearTimeout(this._drumSaveTimer);
-        this._drumSaveTimer = setTimeout(() => this._saveProject(), 400);
-      };
-    };
-    drBind('dr-kick', 'kick'); drBind('dr-snare', 'snare'); drBind('dr-attack', 'attack');
-
-    const bTgt = this._bassTarget();
-    const bEl = $('bs-target');
-    if (bEl) bEl.textContent = bTgt ? `対象: ${PART_LABELS[bTgt.part] || bTgt.name}` : '対象トラックがありません（音源を読み込むか選択してください）';
-    const bsBind = (id, key) => {
-      const s = $(id), v = $(id + '-v'); if (!s) return;
-      s.oninput = () => {
-        const val = parseFloat(s.value);
-        v.textContent = this._drumPct(val);
-        const t = this._bassTarget(); if (!t) return;
-        t.bassEq = t.bassEq || { sub: 0, body: 0, edge: 0 };
-        t.bassEq[key] = val;
-        this._applyBassEq(t);                       // live, instant
-        this._updateEnhBadge(t);                    // visual feedback
-        clearTimeout(this._bassSaveTimer);
-        this._bassSaveTimer = setTimeout(() => this._saveProject(), 400);
-      };
-    };
-    bsBind('bs-sub', 'sub'); bsBind('bs-body', 'body'); bsBind('bs-edge', 'edge');
+    const pctBind = (id) => { const s = $(id), v = $(id + '-v'); if (s) s.oninput = () => v.textContent = this._drumPct(parseFloat(s.value)); };
+    ['dr-kick', 'dr-snare', 'dr-attack', 'bs-sub', 'bs-body', 'bs-edge'].forEach(pctBind);
   }
-
-  // ----- drum enhancement (live, bipolar EQ on the track graph) -----
-  // normalized -1..+1 per band → dB. center 0 = original.
-  static get DRUM_DB() { return { kick: 9, snare: 7, attack: 7 }; }
 
   _drumPct(v) { v = +v || 0; return (v > 0 ? '+' : '') + Math.round(v * 100) + '%'; }
 
-  // The track these sliders control: the separated drums track, else selection.
-  _drumTarget() {
-    return this.tracks.find(t => t.part === 'drums')
-      || this.getTrack(this.selectedTrackId)
-      || this.tracks[0] || null;
-  }
-
-  _applyDrumEq(track) {
-    if (!track || !track.nodes) return;
-    const de = track.drumEq || { kick: 0, snare: 0, attack: 0 };
-    const D = StudioFlowDAW2.DRUM_DB, n = track.nodes, t = this.engine.ctx.currentTime;
-    n.drKick && n.drKick.gain.setTargetAtTime((de.kick || 0) * D.kick, t, 0.02);
-    n.drSnare && n.drSnare.gain.setTargetAtTime((de.snare || 0) * D.snare, t, 0.02);
-    n.drAttack && n.drAttack.gain.setTargetAtTime((de.attack || 0) * D.attack, t, 0.02);
-  }
-
-  // ----- bass enhancement (live, bipolar EQ on the track graph) -----
-  static get BASS_DB() { return { sub: 9, body: 7, edge: 6 }; }
-
-  _bassTarget() {
-    return this.tracks.find(t => t.part === 'bass')
-      || this.getTrack(this.selectedTrackId)
-      || this.tracks[0] || null;
-  }
-
-  _applyBassEq(track) {
-    if (!track || !track.nodes) return;
-    const be = track.bassEq || { sub: 0, body: 0, edge: 0 };
-    const B = StudioFlowDAW2.BASS_DB, n = track.nodes, t = this.engine.ctx.currentTime;
-    n.bsSub && n.bsSub.gain.setTargetAtTime((be.sub || 0) * B.sub, t, 0.02);
-    n.bsBody && n.bsBody.gain.setTargetAtTime((be.body || 0) * B.body, t, 0.02);
-    n.bsEdge && n.bsEdge.gain.setTargetAtTime((be.edge || 0) * B.edge, t, 0.02);
-  }
-
-  // ----- "強化中" badge (visual feedback for the live drum/bass EQ) -----
-  _enhSummary(track) {
-    const out = [];
-    const add = (label, v) => { if (Math.abs(v || 0) >= 0.025) out.push(`${label} ${v > 0 ? '+' : ''}${Math.round(v * 100)}%`); };
-    const de = track.drumEq || {}, be = track.bassEq || {};
-    add('キック', de.kick); add('スネア', de.snare); add('アタック', de.attack);
-    add('サブ', be.sub); add('太さ', be.body); add('輪郭', be.edge);
-    return out;
-  }
-
-  _enhBadgeHTML(track) {
-    const items = this._enhSummary(track);
-    if (items.length === 0) return '';
-    const up = items.some(s => s.includes('+')), down = items.some(s => /-\d/.test(s));
-    const icon = up && !down ? '▲' : (down && !up ? '▼' : '▲▼');
-    return `<span class="enh-badge" title="${esc(items.join(' / '))}"><i class="fas fa-sliders"></i> 強化中 ${icon}</span>`;
-  }
-
-  _updateEnhBadge(track) {
-    if (!track) return;
-    const slot = document.querySelector(`.track-row[data-track-id="${track.id}"] .enh-badge-slot`);
-    if (slot) slot.innerHTML = this._enhBadgeHTML(track);
+  // Reset the six enhancement sliders back to center (after applying).
+  _resetEnhSliders(ids) {
+    ids.forEach(id => { const s = $(id), v = $(id + '-v'); if (s) { s.value = '0'; if (v) v.textContent = '0%'; } });
   }
 
   _selectedClipBuffer() {
@@ -1452,6 +1357,23 @@ class StudioFlowDAW2 {
     } catch (e) { this.toast('処理失敗: ' + e.message); }
   }
 
+  // Bake a bipolar drum/bass enhancement into the selected clip/range so the
+  // waveform reflects it, then recenter the sliders.
+  async _applyEnhance(kind) {
+    const f = parseFloat;
+    if (kind === 'drums') {
+      const opts = { kick: f($('dr-kick').value), snare: f($('dr-snare').value), attack: f($('dr-attack').value) };
+      if (!opts.kick && !opts.snare && !opts.attack) { this.toast('スライダーを動かしてから適用してください'); return; }
+      await this._applyClipProc(b => SF2ProTools.enhanceDrums(b, opts), 'ドラムを強化しました（波形に反映）');
+      this._resetEnhSliders(['dr-kick', 'dr-snare', 'dr-attack']);
+    } else {
+      const opts = { sub: f($('bs-sub').value), body: f($('bs-body').value), edge: f($('bs-edge').value) };
+      if (!opts.sub && !opts.body && !opts.edge) { this.toast('スライダーを動かしてから適用してください'); return; }
+      await this._applyClipProc(b => SF2ProTools.enhanceBass(b, opts), 'ベースを強化しました（波形に反映）');
+      this._resetEnhSliders(['bs-sub', 'bs-body', 'bs-edge']);
+    }
+  }
+
   _proToolAction(act) {
     if (act === 'extract') { this._extractShort(parseFloat($('pt-clip-len').value)); return; }
     const P = SF2ProTools;
@@ -1464,6 +1386,8 @@ class StudioFlowDAW2 {
     };
     if (rangeFns[act]) { this._applyClipProc(rangeFns[act]); return; }
     if (act === 'vocalsolo') { this._vocalSoloDrop(); return; }
+    if (act === 'drums') { this._applyEnhance('drums'); return; }
+    if (act === 'bass') { this._applyEnhance('bass'); return; }
 
     const clip = this._selectedClipBuffer();
     if (!clip) { this.toast('クリップを選択してください'); return; }
@@ -1669,12 +1593,6 @@ class StudioFlowDAW2 {
         if (n) {
           n.gainNode.gain.value = 1; n.panNode.pan.value = 0;
           n.eqLow.gain.value = 0; n.eqMid.gain.value = 0; n.eqHigh.gain.value = 0;
-          if (n.drKick) n.drKick.gain.value = 0;
-          if (n.drSnare) n.drSnare.gain.value = 0;
-          if (n.drAttack) n.drAttack.gain.value = 0;
-          if (n.bsSub) n.bsSub.gain.value = 0;
-          if (n.bsBody) n.bsBody.gain.value = 0;
-          if (n.bsEdge) n.bsEdge.gain.value = 0;
           n.reverbWet.gain.value = 0; n.reverbDry.gain.value = 1;
           if (n.sweepFilter) n.sweepFilter.frequency.value = 20000;
         }
@@ -1706,19 +1624,11 @@ class StudioFlowDAW2 {
       // reset all per-track state and audio-node params (volume/pan/EQ/reverb/sweep)
       t.volume = 1; t.pan = 0; t.muted = false; t.solo = false; t.reverb = 0;
       t._editedBuf = null;
-      t.drumEq = { kick: 0, snare: 0, attack: 0 };
-      t.bassEq = { sub: 0, body: 0, edge: 0 };
       const n = t.nodes;
       if (n) {
         n.gainNode.gain.value = 1;
         n.panNode.pan.value = 0;
         n.eqLow.gain.value = 0; n.eqMid.gain.value = 0; n.eqHigh.gain.value = 0;
-        if (n.drKick) n.drKick.gain.value = 0;
-        if (n.drSnare) n.drSnare.gain.value = 0;
-        if (n.drAttack) n.drAttack.gain.value = 0;
-        if (n.bsSub) n.bsSub.gain.value = 0;
-        if (n.bsBody) n.bsBody.gain.value = 0;
-        if (n.bsEdge) n.bsEdge.gain.value = 0;
         n.reverbWet.gain.value = 0; n.reverbDry.gain.value = 1;
         if (n.sweepFilter) n.sweepFilter.frequency.value = 20000;
       }
@@ -1967,8 +1877,6 @@ class StudioFlowDAW2 {
           mid: t.nodes?.eqMid?.gain?.value ?? 0,
           high: t.nodes?.eqHigh?.gain?.value ?? 0,
         },
-        drumEq: { ...(t.drumEq || { kick: 0, snare: 0, attack: 0 }) },
-        bassEq: { ...(t.bassEq || { sub: 0, body: 0, edge: 0 }) },
         automation: JSON.parse(JSON.stringify(t.automation || {})),
         clips: t.clips.map(c => ({ ...c })),       // buffers are shared by reference
         fxClips: (t.fxClips || []).map(f => ({ ...f })),
@@ -1989,10 +1897,6 @@ class StudioFlowDAW2 {
       t.nodes.reverbDry.gain.value = 1 - (t.reverb ?? 0) * 0.5;
       const eq = s.eq || { low: 0, mid: 0, high: 0 };
       t.nodes.eqLow.gain.value = eq.low; t.nodes.eqMid.gain.value = eq.mid; t.nodes.eqHigh.gain.value = eq.high;
-      t.drumEq = s.drumEq || { kick: 0, snare: 0, attack: 0 };
-      this._applyDrumEq(t);
-      t.bassEq = s.bassEq || { sub: 0, body: 0, edge: 0 };
-      this._applyBassEq(t);
       return t;
     });
     this.engine.tracks = this.tracks;
@@ -2113,8 +2017,6 @@ class StudioFlowDAW2 {
         const trackMeta = {
           id: t.id, name: t.name, part: t.part, color: t.color,
           volume: t.volume, pan: t.pan, muted: t.muted, solo: t.solo, reverb: t.reverb ?? 0,
-          drumEq: t.drumEq || { kick: 0, snare: 0, attack: 0 },
-          bassEq: t.bassEq || { sub: 0, body: 0, edge: 0 },
           automation: t.automation || {},
           fxClips: t.fxClips || [],
           clips: [],
@@ -2157,10 +2059,6 @@ class StudioFlowDAW2 {
         track.nodes.panNode.pan.value = track.pan;
         track.nodes.reverbWet.gain.value = track.reverb;
         track.nodes.reverbDry.gain.value = 1 - track.reverb * 0.5;
-        track.drumEq = tm.drumEq || { kick: 0, snare: 0, attack: 0 };
-        this._applyDrumEq(track);
-        track.bassEq = tm.bassEq || { sub: 0, body: 0, edge: 0 };
-        this._applyBassEq(track);
         for (const cm of tm.clips) {
           let buf = bufCache.get(cm.bufKey);
           if (!buf) { buf = await SF2Storage.loadBuffer(cm.bufKey, this.engine.ctx); if (buf) bufCache.set(cm.bufKey, buf); }
