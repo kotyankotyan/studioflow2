@@ -428,15 +428,20 @@ async function eqBands(buffer, bands) {
   return ctx.startRendering();
 }
 
-// Drum enhancement (bipolar). amounts -1..1: negative = weaken, positive = strengthen.
-//   kick   -> ±9 dB @ 80Hz    snare -> ±7 dB @ 220Hz    attack -> ±7 dB @ 3.5kHz
+// Drum enhancement (bipolar), focused on the low end. The single `kick` amount
+// (-1..1) drives two low bands together — 65Hz sub weight + 110Hz "knock" that
+// small speakers can reproduce — so the low end is actually felt. snare/attack
+// are optional and default to 0 (not exposed in the simplified UI).
 function enhanceDrums(buffer, opts = {}) {
   const c = v => Math.max(-1, Math.min(1, v || 0));
-  return eqBands(buffer, [
-    { freq: 80,   Q: 0.8, gainDb: c(opts.kick)   * 9 },
-    { freq: 220,  Q: 1.0, gainDb: c(opts.snare)  * 7 },
-    { freq: 3500, Q: 0.9, gainDb: c(opts.attack) * 7 },
-  ]);
+  const k = c(opts.kick);
+  const bands = [
+    { freq: 65,  Q: 0.9, gainDb: k * 7 },   // sub weight
+    { freq: 110, Q: 1.0, gainDb: k * 6 },   // audible knock on small speakers
+  ];
+  if (opts.snare)  bands.push({ freq: 220,  Q: 1.0, gainDb: c(opts.snare)  * 7 });
+  if (opts.attack) bands.push({ freq: 3500, Q: 0.9, gainDb: c(opts.attack) * 7 });
+  return eqBands(buffer, bands);
 }
 
 // Bass enhancement (bipolar). amounts -1..1: negative = weaken, positive = strengthen.

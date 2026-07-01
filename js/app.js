@@ -1314,12 +1314,10 @@ class StudioFlowDAW2 {
           <p id="pt-measure-result" class="empty-hint">--</p>
         </div>
         <div class="panel-section">
-          <h4><i class="fas fa-drum"></i> ドラム強化（キック / スネア）</h4>
-          <div class="prop-row"><label title="80Hz中心の低域。左=弱める / 右=強める">キック</label><input type="range" id="dr-kick" min="-1" max="1" step="0.05" value="0"><span id="dr-kick-v">0%</span></div>
-          <div class="prop-row"><label title="220Hz中心の胴鳴り。左=弱める / 右=強める">スネア</label><input type="range" id="dr-snare" min="-1" max="1" step="0.05" value="0"><span id="dr-snare-v">0%</span></div>
-          <div class="prop-row"><label title="3.5kHzの叩き・抜け（アタック感）。左=弱める / 右=強める">アタック</label><input type="range" id="dr-attack" min="-1" max="1" step="0.05" value="0"><span id="dr-attack-v">0%</span></div>
+          <h4><i class="fas fa-drum"></i> ドラム強化（低音）</h4>
+          <div class="prop-row"><label title="キック・ドラムの低音（65Hz＋110Hz）。左=弱める / 右=強める">低音</label><input type="range" id="dr-kick" min="-1" max="1" step="0.05" value="0"><span id="dr-kick-v">0%</span></div>
           <button class="pt-btn" data-act="drums">選択クリップ／範囲に適用</button>
-          <p class="empty-hint">中央=変化なし。右で強め / 左で弱め、<b>「適用」で波形に反映</b>されます（範囲選択中はその部分だけ）。分離済みドラムトラックに最適。</p>
+          <p class="empty-hint">キックの低音を太くします。中央=変化なし。右で強め / 左で弱め、<b>「適用」で波形に反映</b>（範囲選択中はその部分だけ）。分離済みドラムトラックに最適。</p>
         </div>
         <div class="panel-section">
           <h4><i class="fas fa-guitar"></i> ベース強化（サブ / 太さ）</h4>
@@ -1332,7 +1330,7 @@ class StudioFlowDAW2 {
       </div>`;
     pane.querySelectorAll('.pt-btn').forEach(b => b.onclick = () => this._proToolAction(b.dataset.act));
     const pctBind = (id) => { const s = $(id), v = $(id + '-v'); if (s) s.oninput = () => v.textContent = this._drumPct(parseFloat(s.value)); };
-    ['dr-kick', 'dr-snare', 'dr-attack', 'bs-sub', 'bs-body', 'bs-edge'].forEach(pctBind);
+    ['dr-kick', 'bs-sub', 'bs-body', 'bs-edge'].forEach(pctBind);
     const dh = $('pt-deharsh'); if (dh) dh.oninput = () => $('pt-deharsh-v').textContent = Math.round(parseFloat(dh.value) * 100) + '%';
   }
 
@@ -1379,10 +1377,10 @@ class StudioFlowDAW2 {
   async _applyEnhance(kind) {
     const f = parseFloat;
     if (kind === 'drums') {
-      const opts = { kick: f($('dr-kick').value), snare: f($('dr-snare').value), attack: f($('dr-attack').value) };
-      if (!opts.kick && !opts.snare && !opts.attack) { this.toast('スライダーを動かしてから適用してください'); return; }
-      await this._applyClipProc(b => SF2ProTools.enhanceDrums(b, opts), 'ドラムを強化しました（波形に反映）');
-      this._resetEnhSliders(['dr-kick', 'dr-snare', 'dr-attack']);
+      const opts = { kick: f($('dr-kick').value) };
+      if (!opts.kick) { this.toast('スライダーを動かしてから適用してください'); return; }
+      await this._applyClipProc(b => SF2ProTools.enhanceDrums(b, opts), 'ドラムの低音を調整しました（波形に反映）');
+      this._resetEnhSliders(['dr-kick']);
     } else {
       const opts = { sub: f($('bs-sub').value), body: f($('bs-body').value), edge: f($('bs-edge').value) };
       if (!opts.sub && !opts.body && !opts.edge) { this.toast('スライダーを動かしてから適用してください'); return; }
