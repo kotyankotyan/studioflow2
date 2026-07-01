@@ -1285,6 +1285,12 @@ class StudioFlowDAW2 {
           </div>
         </div>
         <div class="panel-section">
+          <h4><i class="fas fa-ear-listen"></i> 耳に痛い高音を抑える</h4>
+          <div class="prop-row"><label title="シャカシャカ音・歯擦音（3k/7.5k/高域）を抑えます">強さ</label><input type="range" id="pt-deharsh" min="0" max="1" step="0.05" value="0.5"><span id="pt-deharsh-v">50%</span></div>
+          <button class="pt-btn" data-act="deharsh">選択クリップ／範囲に適用</button>
+          <p class="empty-hint">シャカシャカした耳に刺さる高音をやわらげます。強すぎると曇るので、まず50%前後から。範囲選択中はその部分だけ。</p>
+        </div>
+        <div class="panel-section">
           <h4><i class="fas fa-bolt"></i> 盛り上げFX / 分割</h4>
           <button class="pt-btn" data-act="sweep">サビ前スウィープ</button>
           <button class="pt-btn" data-act="buildup">ビルドアップFX</button>
@@ -1327,6 +1333,7 @@ class StudioFlowDAW2 {
     pane.querySelectorAll('.pt-btn').forEach(b => b.onclick = () => this._proToolAction(b.dataset.act));
     const pctBind = (id) => { const s = $(id), v = $(id + '-v'); if (s) s.oninput = () => v.textContent = this._drumPct(parseFloat(s.value)); };
     ['dr-kick', 'dr-snare', 'dr-attack', 'bs-sub', 'bs-body', 'bs-edge'].forEach(pctBind);
+    const dh = $('pt-deharsh'); if (dh) dh.oninput = () => $('pt-deharsh-v').textContent = Math.round(parseFloat(dh.value) * 100) + '%';
   }
 
   _drumPct(v) { v = +v || 0; return (v > 0 ? '+' : '') + Math.round(v * 100) + '%'; }
@@ -1403,6 +1410,7 @@ class StudioFlowDAW2 {
       this._applyClipProc(b => P.silenceRegion(b), '選択範囲を無音化しました'); return;
     }
     if (act === 'vocalsolo') { this._vocalSoloDrop(); return; }
+    if (act === 'deharsh') { this._applyClipProc(b => P.deHarsh(b, parseFloat($('pt-deharsh').value)), 'シャカシャカ音を抑えました（波形に反映）'); return; }
     if (act === 'drums') { this._applyEnhance('drums'); return; }
     if (act === 'bass') { this._applyEnhance('bass'); return; }
 

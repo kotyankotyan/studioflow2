@@ -450,6 +450,18 @@ function enhanceBass(buffer, opts = {}) {
   ]);
 }
 
+// De-harsh / tame "シャカシャカ" sizzle and harsh, ear-piercing highs. One knob
+// (amount 0..1). Gently cuts the harsh presence (~3kHz), the main sizzle /
+// sibilance (~7.5kHz), and rolls off the very top with a high shelf.
+function deHarsh(buffer, amount = 0.5) {
+  const a = Math.max(0, Math.min(1, amount));
+  return eqBands(buffer, [
+    { freq: 3200,  Q: 1.4, gainDb: -a * 3 },
+    { freq: 7500,  Q: 1.1, gainDb: -a * 8 },
+    { freq: 11000, type: 'highshelf', gainDb: -a * 4 },
+  ]);
+}
+
 // Silence a buffer (used on a selected range to "mute" that section). The body
 // is zeroed; the edges keep a short fade (the original audio ramped to/from 0)
 // so the transition into and out of the silence has no click.
@@ -531,6 +543,7 @@ window.SF2ProTools = {
   enhanceVocal,
   enhanceDrums,
   enhanceBass,
+  deHarsh,
   silenceRegion,
   timeStretch,
 };
