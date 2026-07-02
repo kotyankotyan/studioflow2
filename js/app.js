@@ -92,10 +92,43 @@ class StudioFlowDAW2 {
     this._toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
   }
 
+  // Snapshot of app state for debugging (call daw.debugInfo() in the console;
+  // pair with SF2Log.dump() / SF2Log.download() for the recent log).
+  debugInfo() {
+    const mb = n => (n / 1048576).toFixed(1) + 'MB';
+    const bufBytes = new Set();
+    let clipCount = 0, audioBytes = 0;
+    for (const t of this.tracks) {
+      for (const c of t.clips) {
+        clipCount++;
+        if (!bufBytes.has(c.buffer)) {
+          bufBytes.add(c.buffer);
+          audioBytes += c.buffer.length * c.buffer.numberOfChannels * 4;
+        }
+      }
+    }
+    return {
+      bpm: this.bpm, key: this.key, playing: this.engine._isPlaying,
+      ctxState: this.engine.ctx.state, sampleRate: this.engine.ctx.sampleRate,
+      tracks: this.tracks.map(t => ({ id: t.id, name: t.name, part: t.part, clips: t.clips.length, muted: t.muted, solo: t.solo })),
+      clipCount, audioMemory: mb(audioBytes),
+      undoDepth: (this._undoStack || []).length,
+      selection: this.selection ? { ...this.selection } : null,
+    };
+  }
+
   // ---------- audio file loading ----------
   async _decodeFile(file) {
+    const MAX_MB = 300;   // decoded PCM easily reaches GBs; cap the input size
+    if (file.size > MAX_MB * 1024 * 1024) {
+      throw new Error(`ファイルが大きすぎます（上限 ${MAX_MB}MB）: ${file.name}`);
+    }
     const arr = await file.arrayBuffer();
-    return this.engine.ctx.decodeAudioData(arr);
+    try {
+      return await this.engine.ctx.decodeAudioData(arr);
+    } catch (e) {
+      throw new Error(`音声として読み込めません（対応形式: WAV/MP3/OGG/FLAC/M4A）: ${file.name}`);
+    }
   }
 
   guessPart(name) {
@@ -115,7 +148,7 @@ class StudioFlowDAW2 {
     for (const file of files) {
       let buffer;
       try { buffer = await this._decodeFile(file); }
-      catch (e) { this.toast(`読込失敗: ${file.name}`); continue; }
+      catch (e) { SF2Log.warn('読込失敗:', e); this.toast(e.message || `読込失敗: ${file.name}`); continue; }
       if (!firstBuffer) firstBuffer = buffer;
       const part = this.guessPart(file.name);
       this.addTrack({ name: file.name.replace(/\.[^.]+$/, ''), part, buffer });
@@ -2058,7 +2091,14 @@ class StudioFlowDAW2 {
         meta.tracks.push(trackMeta);
       }
       await SF2Storage.saveProject(meta);
-    } catch (e) { /* persistence best-effort */ }
+    } catch (e) {
+      SF2Log.warn('自動保存失敗:', e);
+      // Quota errors matter to the user (work will be lost on reload) — say so once.
+      if (e && (e.name === 'QuotaExceededError' || /quota/i.test(e.message || '')) && !this._quotaWarned) {
+        this._quotaWarned = true;
+        this.toast('保存容量が不足しています。不要なトラックを削除してください（自動保存が効いていません）');
+      }
+    }
   }
 
   async _tryRestore() {
@@ -2095,7 +2135,10 @@ class StudioFlowDAW2 {
       this._refreshAll();
       this._setStep('adjust');
       this.toast('前回のプロジェクトを復元しました');
-    } catch (e) { /* no project to restore */ }
+    } catch (e) {
+      // A missing project is normal on first run; anything else is worth surfacing.
+      SF2Log.warn('プロジェクト復元をスキップ:', e);
+    }
   }
 
   // ---------- keyboard ----------
@@ -2151,7 +2194,9 @@ function startApp() {
   $('login-screen').classList.add('hidden');
   $('app').classList.remove('hidden');
   window.daw = new StudioFlowDAW2();
-  window.daw.init();
+  // Route global error toasts through the DAW's toast once it exists.
+  if (window.SF2Log) SF2Log.setToast(msg => window.daw && window.daw.toast(msg));
+  window.daw.init().catch(e => SF2Log.notify('初期化に失敗しました', e));
 }
 
 function setupLogin() {
@@ -2167,23 +2212,42 @@ function setupLogin() {
   // so let the first login set the password.
   const firstRun = !localStorage.getItem('sf2_pw_hash');
 
+  const showError = (msg) => { errEl.textContent = msg; errEl.classList.remove('hidden'); };
+
   form.onsubmit = async e => {
     e.preventDefault();
     const pw = pwInput.value;
     if (!pw) return;
-    if (firstRun) {
-      await SF2Auth.setPassword(pw);
-      SF2Auth.createSession();
-      startApp();
-      return;
+    try {
+      if (firstRun) {
+        await SF2Auth.setPassword(pw);
+        SF2Auth.createSession();
+        startApp();
+        return;
+      }
+      const lockMs = SF2Auth.lockoutRemaining();
+      if (lockMs > 0) { showError(`試行回数が多すぎます。${Math.ceil(lockMs / 1000)}秒後にやり直してください`); return; }
+      const ok = await SF2Auth.verifyPassword(pw);
+      if (ok) { SF2Auth.createSession(); startApp(); }
+      else {
+        const ms = SF2Auth.lockoutRemaining();
+        showError(ms > 0 ? `試行回数が多すぎます。${Math.ceil(ms / 1000)}秒後にやり直してください` : 'パスワードが違います');
+        pwInput.value = '';
+      }
+    } catch (err) {
+      SF2Log.error('ログイン処理失敗:', err);
+      showError('ログイン処理に失敗しました');
     }
-    const ok = await SF2Auth.verifyPassword(pw);
-    if (ok) { SF2Auth.createSession(); startApp(); }
-    else { errEl.classList.remove('hidden'); pwInput.value = ''; }
   };
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  if (SF2Auth.isSessionValid()) startApp();
-  else setupLogin();
+  try {
+    if (SF2Auth.isSessionValid()) startApp();
+    else setupLogin();
+  } catch (e) {
+    if (window.SF2Log) SF2Log.error('起動失敗:', e);
+    document.body.insertAdjacentHTML('beforeend',
+      '<p style="color:#f66;padding:20px">起動に失敗しました。ページを再読み込みしてください。</p>');
+  }
 });
